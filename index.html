@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>서울시 행정동 실시간 지도 서비스</title>
+    <title>서울시 행정동 상권 예측 플랫폼</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -40,19 +40,19 @@
             display: flex;
             flex-direction: column;
             gap: 18px;
-            min-width: 320px;
+            min-width: 340px;
         }
         
         h1 { font-size: 20px; color: #0f172a; border-bottom: 3px solid #0284c7; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .zoom-badge { font-size: 11px; background: #0284c7; color: white; padding: 3px 8px; border-radius: 20px; transition: all 0.1s ease; }
+        .zoom-badge { font-size: 11px; background: #0284c7; color: white; padding: 3px 8px; border-radius: 20px; }
         
-        .meta-box { background: white; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; }
-        .meta-label { font-size: 12px; color: #64748b; font-weight: bold; margin-bottom: 4px; }
-        .meta-value { font-size: 22px; color: #0f172a; font-weight: bold; }
+        .meta-box { background: white; padding: 18px; border-radius: 10px; border: 1px solid #e2e8f0; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .meta-label { font-size: 12px; color: #64748b; font-weight: bold; margin-bottom: 6px; }
+        .meta-value { font-size: 24px; color: #0f172a; font-weight: bold; }
         .meta-sub { font-size: 13px; color: #475569; margin-top: 5px; }
         
-        .selected-list { flex: 1; overflow-y: auto; background: white; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; }
-        .selected-item { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 4px 10px; border-radius: 6px; font-size: 12px; margin: 3px; font-weight: bold; }
+        /* 등급별 전용 대시보드 스타일 */
+        .grade-box { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding: 12px; border-radius: 8px; font-weight: bold; font-size: 18px; }
         
         .footer-tip { font-size: 12px; color: #94a3b8; line-height: 1.5; border-top: 1px solid #e2e8f0; padding-top: 10px; }
     </style>
@@ -63,41 +63,60 @@
     <div id="map-canvas"></div>
     
     <div class="control-panel">
-        <h1>서울 플랫폼 대시보드 <span id="layer-indicator" class="zoom-badge">자치구 광역 모드</span></h1>
+        <h1>상권 예측 대시보드 <span id="layer-indicator" class="zoom-badge">자치구 광역 모드</span></h1>
         
         <div class="meta-box">
-            <div class="meta-label">마지막 선택 지역</div>
-            <div id="current-region" class="meta-value">선택 없음</div>
-            <div id="current-code" class="meta-sub">코드: -</div>
+            <div class="meta-label">📍 분석 선택 지역</div>
+            <div id="current-region" class="meta-value">지역을 클릭하세요</div>
+            <div id="current-code" class="meta-sub">행정구역 코드: -</div>
         </div>
 
-        <div class="meta-box" style="background: #f0fdf4; border-color: #bbf7d0;">
-            <div class="meta-label" style="color: #166534;">선택된 총 지역 수</div>
-            <div id="total-count" class="meta-value" style="color: #166534;">0 개 구역</div>
+        <div class="meta-box" style="background: #ffffff;">
+            <div class="meta-label">📈 향후 틈새상권 성장 예측</div>
+            <div id="grade-display" class="grade-box" style="background: #f1f5f9; color: #64748b; justify-content: center;">
+                지역을 클릭하면 등급이 산정됩니다
+            </div>
         </div>
         
-        <div class="meta-label">현재 다중 선택된 리스트</div>
-        <div class="selected-list" id="badge-container">
-            <span style="color: #94a3b8; font-size: 13px;">지도에서 구역을 클릭하면 리스트에 추가됩니다.</span>
-        </div>
-        
-        <div class="footer-tip">
-            ✨ <b>마우스 커서 축 고정형 스마트 줌 완벽 이식</b><br>
-            • 원하는 특정 지역 위에 십자가 커서를 두고 휠을 굴려보세요.<br>
-            • 화면 중심으로 튕기지 않고, **커서가 가리키는 지점이 화면에 빨판처럼 고정된 채** 유연하게 확대/축소됩니다.
+        <div style="flex: 1;"></div> <div class="footer-tip">
+            🎨 <b>상권 성장 등급 시각화 내비게이션</b><br>
+            • 복수 누적이 해제되어 클릭한 <b>단 한 곳의 지역만</b> 집중 분석합니다.<br>
+            • <b>1등급(파랑)</b>에 가까울수록 미래에 뜰 확률이 높은 핵심 틈새 상권입니다.<br>
+            • <b>9등급(빨강)</b>에 가까울수록 포화 및 성장이 정체된 상권입니다.
         </div>
     </div>
 </div>
 
 <script>
-    // 파이썬 환경을 거치지 않고 웹 브라우저에서 다이렉트로 로드하기 위한 하이브리드 자동 주입 엔진
     const chart = echarts.init(document.getElementById('map-canvas'), null, {renderer: 'canvas'});
     const badge = document.getElementById('layer-indicator');
-    const clickedItems = {};
+    
+    // 현재 선택된 단 하나의 동/구 이름과 등급 정보를 저장할 변수
+    let selectedRegionName = null;
+    let selectedRegionGrade = null;
     let currentMode = 'gu';
     let guData = [], dongData = [];
 
-    // 대용량 경계 좌표 데이터셋 비동기 다이렉트 패치 엔진
+    // 🎨 [3번 요구사항] 1등급(파랑) ~ 9등급(빨강) 스펙트럼 색상 추출 함수 (보간법 공식)
+    function getGradeColor(grade) {
+        if (!grade) return '#ffffff'; // 선택 안 됐을 땐 깨끗한 흰색
+        
+        // 1등급(파랑) -> 5등급(노랑) -> 9등급(빨강) 유연한 그라데이션 컬러 매핑 딕셔너리
+        const colorMap = {
+            1: '#0284c7', // 진한 파랑 (A+)
+            2: '#38bdf8', // 하늘색
+            3: '#4ade80', // 연두색
+            4: '#facc15', // 노란색
+            5: '#f97316', // 주황색
+            6: '#ea580c', // 진한 주황
+            7: '#ef4444', // 붉은 주황
+            8: '#dc2626', // 빨간색
+            9: '#b91c1c'  // 버건디 딥레드 (쇠퇴)
+        };
+        return colorMap[grade] || '#ffffff';
+    }
+
+    // 깃허브 웹 최적화용 서울시 GeoJSON 엔진 로드
     Promise.all([
         fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_municipalities_geo.json").then(r => r.json()),
         fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_submunicipalities_geo.json").then(r => r.json())
@@ -106,8 +125,8 @@
         echarts.registerMap('seoul_gu', guGeojson);
         echarts.registerMap('seoul_dong', dongGeojson);
         
-        guData = guGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code, itemStyle: { areaColor: '#ffffff' } }));
-        dongData = dongGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code, itemStyle: { areaColor: '#ffffff' } }));
+        guData = guGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code }));
+        dongData = dongGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code }));
 
         function getMapOption(mode) {
             return {
@@ -128,30 +147,35 @@
                         fontSize: mode === 'gu' ? 11 : 9,
                         fontWeight: mode === 'gu' ? 'bold' : 'normal'
                     },
-                    emphasis: { label: { show: true }, itemStyle: { areaColor: '#e0f2fe' } },
+                    emphasis: { label: { show: true }, itemStyle: { areaColor: '#f1f5f9' } },
                     itemStyle: { 
                         borderColor: mode === 'gu' ? '#475569' : '#cbd5e1', 
                         borderWidth: mode === 'gu' ? 1.8 : 0.8 
                     },
+                    // 🌟 [1, 3번 요구사항 구현] 단일 선택된 대상만 등급 색상을 칠하고 나머지는 흰색 롤백
                     data: (mode === 'gu' ? guData : dongData).map(item => {
-                        if (clickedItems[item.name]) { return { ...item, itemStyle: { areaColor: '#0284c7', label: { color: '#ffffff' } } }; }
-                        return item;
+                        if (item.name === selectedRegionName) {
+                            return { 
+                                ...item, 
+                                itemStyle: { 
+                                    areaColor: getGradeColor(selectedRegionGrade), 
+                                    label: { color: '#ffffff', fontWeight: 'bold' } 
+                                } 
+                            };
+                        }
+                        return { ...item, itemStyle: { areaColor: '#ffffff' } };
                     })
                 }]
             };
         }
 
-        // 시동 옵션 설정
+        // 지도 첫 실행
         chart.setOption({
             ...getMapOption('gu'),
-            series: [{
-                ...getMapOption('gu').series[0],
-                zoom: 1.0,
-                center: [126.9780, 37.5665]
-            }]
+            series: [{ ...getMapOption('gu').series[0], zoom: 1.0, center: [126.9780, 37.5665] }]
         });
 
-        // 🔄 마우스 커서 기반 스마트 줌 및 레이어 스위칭 동기화 엔진
+        // 🔄 튕김 없는 빨판 고정 줌 & 실시간 레이어 체인지 엔진
         chart.on('georoam', function (params) {
             const optionModel = chart.getOption();
             const liveZoom = optionModel.series[0].zoom;
@@ -173,8 +197,10 @@
                             label: { fontSize: targetMode === 'gu' ? 11 : 9, fontWeight: targetMode === 'gu' ? 'bold' : 'normal' },
                             itemStyle: { borderColor: targetMode === 'gu' ? '#475569' : '#cbd5e1', borderWidth: targetMode === 'gu' ? 1.8 : 0.8 },
                             data: (targetMode === 'gu' ? guData : dongData).map(item => {
-                                if (clickedItems[item.name]) { return { ...item, itemStyle: { areaColor: '#0284c7', label: { color: '#ffffff' } } }; }
-                                return item;
+                                if (item.name === selectedRegionName) {
+                                    return { ...item, itemStyle: { areaColor: getGradeColor(selectedRegionGrade), label: { color: '#ffffff' } } };
+                                }
+                                return { ...item, itemStyle: { areaColor: '#ffffff' } };
                             })
                         }]
                     }, {lazyUpdate: false});
@@ -186,56 +212,42 @@
             }
         });
 
-        // 클릭 이벤트 핸들러
+        // 🖱️ [1, 2, 3번 종합 구현] 지도 클릭 시 단일 변색 및 시뮬레이션 등급 갱신 시스템
         chart.on('click', function(params) {
             const regionName = params.name;
             const regionCode = params.data ? (params.data.code || "-") : "-";
             
-            clickedItems[regionName] = !clickedItems[regionName];
-
-            if (clickedItems[regionName]) {
-                document.getElementById('current-region').innerText = regionName;
-                document.getElementById('current-code').innerText = (currentMode === 'gu' ? "자치구 코드: " : "행정동 코드: ") + regionCode;
-            }
-
-            updateDashboard();
+            // 1. 기존 데이터 삭제 후 방금 누른 지역으로 완전 세팅 교체 (단일 선택 기능)
+            selectedRegionName = regionName;
             
+            // 2. [2번 요구사항] 미래 뜰 등급 1~9 사이 랜덤 생성 시뮬레이션 가동
+            selectedRegionGrade = Math.floor(Math.random() * 9) + 1;
+
+            // 우측 대시보드 상태창 텍스트 및 디자인 변경
+            document.getElementById('current-region').innerText = regionName;
+            document.getElementById('current-code').innerText = (currentMode === 'gu' ? "자치구 코드: " : "행정동 코드: ") + regionCode;
+            
+            const gradeDisplay = document.getElementById('grade-display');
+            gradeDisplay.innerText = "🔥 미래 상권 예측 결과: " + selectedRegionGrade + " 등급";
+            gradeDisplay.style.backgroundColor = getGradeColor(selectedRegionGrade);
+            gradeDisplay.style.color = (selectedRegionGrade <= 3 || selectedRegionGrade >= 7) ? '#ffffff' : '#0f172a'; // 가독성 전용 글자색 반전
+
+            // 3. 지도의 모든 색상을 초기화하고 '지금 선택한 동'만 등급 색상으로 주입해 리렌더링
+            const optionModel = chart.getOption();
             chart.setOption({
                 series: [{
-                    zoom: chart.getOption().series[0].zoom,
-                    center: chart.getOption().series[0].center,
+                    zoom: optionModel.series[0].zoom,
+                    center: optionModel.series[0].center,
                     data: (currentMode === 'gu' ? guData : dongData).map(item => {
-                        if (clickedItems[item.name]) { return { ...item, itemStyle: { areaColor: '#0284c7', label: { color: '#ffffff' } } }; }
-                        return item;
+                        if (item.name === selectedRegionName) {
+                            return { ...item, itemStyle: { areaColor: getGradeColor(selectedRegionGrade), label: { color: '#ffffff' } } };
+                        }
+                        return { ...item, itemStyle: { areaColor: '#ffffff' } };
                     })
                 }]
             }); 
         });
     });
-
-    function updateDashboard() {
-        const container = document.getElementById('badge-container');
-        const countTxt = document.getElementById('total-count');
-        container.innerHTML = "";
-        
-        let selectCount = 0;
-        for (const name in clickedItems) {
-            if (clickedItems[name]) {
-                selectCount++;
-                const span = document.createElement('span');
-                span.className = 'selected-item';
-                span.innerText = name;
-                container.appendChild(span);
-            }
-        }
-        
-        if (selectCount === 0) {
-            container.innerHTML = '<span style="color: #94a3b8; font-size: 13px;">지도에서 구역을 클릭하면 리스트에 추가됩니다.</span>';
-            document.getElementById('current-region').innerText = '선택 없음';
-            document.getElementById('current-code').innerText = '코드: -';
-        }
-        countTxt.innerText = selectCount + " 개 구역 선택됨";
-    }
 
     window.addEventListener('resize', () => chart.resize());
 </script>
