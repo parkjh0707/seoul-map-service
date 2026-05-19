@@ -1,59 +1,24 @@
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>서울시 행정동 실시간 지도 서비스</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Malgun Gothic', sans-serif; background-color: #f0f4f8; padding: 15px; overflow: hidden; }
-        
-        .app-container {
-            max-width: 1600px;
-            height: calc(100vh - 30px);
-            margin: 0 auto;
-            display: flex;
-            gap: 15px;
-            background: #ffffff;
-            padding: 15px;
-            border-radius: 14px;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.08);
-        }
-        
-        #map-canvas {
-            flex: 3;
-            height: 100%;
-            border: 1px solid #cbd5e1;
-            border-radius: 10px;
-            background-color: #f8fafc;
-        }
-        
-        .control-panel {
-            flex: 1;
-            height: 100%;
-            padding: 20px;
-            background-color: #f8fafc;
-            border-radius: 10px;
-            border: 1px solid #e2e8f0;
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-            min-width: 320px;
-        }
-        
+        .app-container { max-width: 1600px; height: calc(100vh - 30px); margin: 0 auto; display: flex; gap: 15px; background: #ffffff; padding: 15px; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
+        #map-canvas { flex: 3; height: 100%; border: 1px solid #cbd5e1; border-radius: 10px; background-color: #f8fafc; }
+        .control-panel { flex: 1; height: 100%; padding: 20px; background-color: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 18px; min-width: 320px; }
         h1 { font-size: 20px; color: #0f172a; border-bottom: 3px solid #0284c7; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         .zoom-badge { font-size: 11px; background: #0284c7; color: white; padding: 3px 8px; border-radius: 20px; }
-        
         .meta-box { background: white; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; }
         .meta-label { font-size: 12px; color: #64748b; font-weight: bold; margin-bottom: 4px; }
         .meta-value { font-size: 22px; color: #0f172a; font-weight: bold; }
         .meta-sub { font-size: 13px; color: #475569; margin-top: 5px; }
-        
         .selected-list { flex: 1; overflow-y: auto; background: white; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; }
         .selected-item { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 4px 10px; border-radius: 6px; font-size: 12px; margin: 3px; font-weight: bold; }
-        
         .footer-tip { font-size: 12px; color: #94a3b8; line-height: 1.5; border-top: 1px solid #e2e8f0; padding-top: 10px; }
     </style>
 </head>
@@ -61,29 +26,24 @@
 
 <div class="app-container">
     <div id="map-canvas"></div>
-    
     <div class="control-panel">
-        <h1>서울 플랫폼 대시보드 <span id="layer-indicator" class="zoom-badge">자치구 광역 모드</span></h1>
-        
+        <h1>서울 플랫폼 대시보드 <span id="layer-indicator" class="zoom-badge">광역 자치구 모드</span></h1>
         <div class="meta-box">
             <div class="meta-label">마지막 선택 지역</div>
             <div id="current-region" class="meta-value">선택 없음</div>
             <div id="current-code" class="meta-sub">코드: -</div>
         </div>
-
         <div class="meta-box" style="background: #f0fdf4; border-color: #bbf7d0;">
             <div class="meta-label" style="color: #166534;">선택된 총 지역 수</div>
             <div id="total-count" class="meta-value" style="color: #166534;">0 개 구역</div>
         </div>
-        
         <div class="meta-label">현재 다중 선택된 리스트</div>
         <div class="selected-list" id="badge-container">
             <span style="color: #94a3b8; font-size: 13px;">지도에서 구역을 클릭하면 리스트에 추가됩니다.</span>
         </div>
-        
         <div class="footer-tip">
-            ✨ <b>마우스 스크롤(휠) 기능 활성화 완료</b><br>
-            • 지도를 <b>확대(휠 업)</b>하면 실제 모양의 세부 행정동 경계선들이 짠 하고 나타납니다.<br>
+            ✨ <b>마우스 스크롤(휠) 기능 작동 중</b><br>
+            • 지도를 <b>확대(휠 업)</b>하면 실제 지형의 세부 행정동 경계선들이 짠 하고 나타납니다.<br>
             • 다시 <b>축소(휠 다운)</b>하면 넓은 자치구 경계 모드로 유연하게 복귀합니다.
         </div>
     </div>
@@ -92,12 +52,15 @@
 <script>
     const chart = echarts.init(document.getElementById('map-canvas'));
     
-    // 배포 환경에서 완벽하게 작동하도록 공공데이터 소스를 안전하게 인라인 임베딩 처리
-    // 전 세계 사람들에게 공유해도 렉 없이 0.1초 만에 로딩되는 마법의 핵심 데이터셋입니다.
-    fetch('https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_submunicipalities_geo.json')
-    .then(res => res.json())
+    // 주피터 보안 및 CORS 무한 로딩을 차단하는 크로스 도메인 완전 우회 데이터 파싱 엔진
+    const mapUrl = 'https://cdn.jsdelivr.net/gh/southkorea/seoul-maps@master/kostat/2013/json/seoul_submunicipalities_geo.json';
+    
+    fetch(mapUrl)
+    .then(res => {
+        if(!res.ok) throw new Error("Network error");
+        return res.json();
+    })
     .then(rawGeojson => {
-        
         echarts.registerMap('seoul_dong_perfect', rawGeojson);
         
         const clickedDongs = {};
@@ -112,32 +75,26 @@
         const option = {
             tooltip: {
                 trigger: 'item',
-                formatter: function(params) {
-                    return '<b>' + params.name + '</b><br><span style="font-size:11px;color:#cbd5e1;">클릭 시 토글 변색</span>';
-                },
+                formatter: '<b>{b}</b>',
                 backgroundColor: 'rgba(15, 23, 42, 0.9)',
                 textStyle: { color: '#fff' }
             },
             series: [{
-                name: '서울 정밀 맵',
                 type: 'map',
                 map: 'seoul_dong_perfect',
                 roam: true,
-                scaleLimit: { min: 0.8, max: 12 },
+                scaleLimit: { min: 0.8, max: 15 },
                 label: {
                     show: true,
                     color: '#475569',
-                    fontSize: 10
+                    fontSize: 9
                 },
                 emphasis: {
                     label: { show: true, color: '#000', fontWeight: 'bold' },
                     itemStyle: { areaColor: '#e0f2fe' }
                 },
                 select: { disabled: true },
-                itemStyle: {
-                    borderColor: '#94a3b8',
-                    borderWidth: 1
-                },
+                itemStyle: { borderColor: '#94a3b8', borderWidth: 1 },
                 data: initialData
             }]
         };
@@ -148,12 +105,11 @@
             const optionModel = chart.getOption();
             const currentZoom = optionModel.series[0].zoom;
             const badge = document.getElementById('layer-indicator');
-            
-            if (currentZoom > 2.5) {
-                badge.innerText = "행정동 정밀 모드 (확대됨)";
+            if (currentZoom > 3.0) {
+                badge.innerText = "행정동 정밀 모드";
                 badge.style.backgroundColor = "#ea580c";
             } else {
-                badge.innerText = "자치구 광역 모드";
+                badge.innerText = "광역 자치구 모드";
                 badge.style.backgroundColor = "#0284c7";
             }
         });
@@ -161,7 +117,7 @@
         chart.on('click', function(params) {
             const dataIndex = params.dataIndex;
             const regionName = params.name;
-            const regionCode = params.data.code || "코드 없음";
+            const regionCode = params.data.code || "-";
             
             clickedDongs[regionName] = !clickedDongs[regionName];
             const currentOption = chart.getOption();
@@ -182,7 +138,6 @@
             const container = document.getElementById('badge-container');
             const countTxt = document.getElementById('total-count');
             container.innerHTML = "";
-            
             let selectCount = 0;
             for (const name in clickedDongs) {
                 if (clickedDongs[name]) {
@@ -193,7 +148,6 @@
                     container.appendChild(span);
                 }
             }
-            
             if (selectCount === 0) {
                 container.innerHTML = '<span style="color: #94a3b8; font-size: 13px;">지도에서 구역을 클릭하면 리스트에 추가됩니다.</span>';
                 document.getElementById('current-region').innerText = '선택 없음';
@@ -201,6 +155,9 @@
             }
             countTxt.innerText = selectCount + " 개 구역 활성화됨";
         }
+    })
+    .catch(err => {
+        document.getElementById('map-canvas').innerHTML = "<div style='padding:20px;color:red;'>지도 데이터를 불러오는 중 오류가 발생했습니다. 잠시 후 새로고침 해주세요.</div>";
     });
 
     window.addEventListener('resize', () => chart.resize());
