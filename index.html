@@ -177,7 +177,7 @@
                     map: isGu ? 'seoul_gu' : 'seoul_dong',
                     
                     // 🌟 [수정 1] 마우스 휠 축소/확대 시 중심축이 휙 틀어지지 않고 안정적으로 작동하게 제어
-                    roam: 'scale', 
+                    roam: true, 
                     
                     scaleLimit: { min: 0.9, max: 15 },
                     
@@ -199,37 +199,65 @@
         }
 
         // 초기 화면 렌더링
-        chart.setOption({
-            ...getMapOption('gu'),
-            series: [{ ...getMapOption('gu').series[0], zoom: 1.0, center: [126.9780, 37.5665] }]
-        });
+chart.setOption({
+    ...getMapOption('gu'),
+    series: [{
+        ...getMapOption('gu').series[0],
+        roam: true,
+        zoom: 1
+    }]
+});
 
         // 줌 이벤트 감지 및 레이어 스위칭 보정
-        chart.on('georoam', function (params) {
-            const optionModel = chart.getOption();
-            const liveZoom = optionModel.series[0].zoom;
-            const liveCenter = optionModel.series[0].center;
-            
-            let targetMode = liveZoom > 2.5 ? 'dong' : 'gu';
-            
-            if (targetMode !== currentMode) {
-                currentMode = targetMode;
-                badge.innerText = targetMode === 'dong' ? "행정동 정밀 모드" : "자치구 광역 모드";
-                badge.style.backgroundColor = targetMode === 'dong' ? "#ea580c" : "#0284c7";
-                
-                const newOption = getMapOption(targetMode);
-                chart.setOption({
-                    series: [{
-                        map: targetMode === 'gu' ? 'seoul_gu' : 'seoul_dong',
-                        zoom: liveZoom,
-                        center: liveCenter, // 튕김 방지를 위해 직전 센터 좌표 고정 강제 주입
-                        label: { show: true }, // 동 모드 글자 켜기 유지
-                        data: newOption.series[0].data
-                    }]
-                }, {lazyUpdate: true});
-            }
-        });
+  chart.on('georoam', function () {
 
+    const option = chart.getOption();
+    const zoom = option.series[0].zoom;
+
+    const targetMode = zoom > 2.5 ? 'dong' : 'gu';
+
+    if (targetMode === currentMode) return;
+
+    currentMode = targetMode;
+
+    badge.innerText =
+        targetMode === 'dong'
+            ? "행정동 정밀 모드"
+            : "자치구 광역 모드";
+
+    badge.style.backgroundColor =
+        targetMode === 'dong'
+            ? "#ea580c"
+            : "#0284c7";
+
+    const newOption = getMapOption(targetMode);
+
+    chart.setOption({
+        series: [{
+            type: 'map',
+            map: targetMode === 'dong'
+                    ? 'seoul_dong'
+                    : 'seoul_gu',
+
+            roam: true,
+
+            zoom: zoom,
+
+            scaleLimit: {
+                min: 0.9,
+                max: 15
+            },
+
+            label: newOption.series[0].label,
+
+            itemStyle: newOption.series[0].itemStyle,
+
+            emphasis: newOption.series[0].emphasis,
+
+            data: newOption.series[0].data
+        }]
+    });
+});
         // 클릭 이벤트
         chart.on('click', function(params) {
             const regionName = params.name;
