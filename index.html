@@ -8,57 +8,20 @@
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Malgun Gothic', sans-serif; background-color: #f0f4f8; padding: 15px; overflow: hidden; }
-        
-        .app-container {
-            max-width: 1600px;
-            height: calc(100vh - 30px);
-            margin: 0 auto;
-            display: flex;
-            gap: 15px;
-            background: #ffffff;
-            padding: 15px;
-            border-radius: 14px;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.08);
-        }
-        
-        #map-canvas {
-            flex: 3;
-            height: 100%;
-            border: 1px solid #cbd5e1;
-            border-radius: 10px;
-            background-color: #f8fafc;
-            cursor: crosshair;
-        }
-        
-        .control-panel {
-            flex: 1;
-            height: 100%;
-            padding: 20px;
-            background-color: #f8fafc;
-            border-radius: 10px;
-            border: 1px solid #e2e8f0;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            min-width: 340px;
-        }
-        
+        .app-container { max-width: 1600px; height: calc(100vh - 30px); margin: 0 auto; display: flex; gap: 15px; background: #ffffff; padding: 15px; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
+        #map-canvas { flex: 3; height: 100%; border: 1px solid #cbd5e1; border-radius: 10px; background-color: #f8fafc; cursor: crosshair; }
+        .control-panel { flex: 1; height: 100%; padding: 20px; background-color: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 15px; min-width: 340px; }
         h1 { font-size: 20px; color: #0f172a; border-bottom: 3px solid #0284c7; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         .zoom-badge { font-size: 11px; background: #0284c7; color: white; padding: 3px 8px; border-radius: 20px; }
-        
         .meta-box { background: white; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
         .meta-label { font-size: 12px; color: #64748b; font-weight: bold; margin-bottom: 6px; }
         .meta-value { font-size: 22px; color: #0f172a; font-weight: bold; }
         .meta-sub { font-size: 13px; color: #475569; margin-top: 5px; }
-        
         .grade-box { display: flex; align-items: center; justify-content: center; margin-top: 8px; padding: 12px; border-radius: 8px; font-weight: bold; font-size: 18px; }
-        
-        /* 추가된 디테일 정보 스타일 */
         .detail-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #e2e8f0; font-size: 14px; }
         .detail-item:last-child { border-bottom: none; }
         .detail-label { color: #475569; font-weight: 500; }
         .detail-value { font-weight: bold; color: #0f172a; }
-        
         .footer-tip { font-size: 12px; color: #94a3b8; line-height: 1.5; border-top: 1px solid #e2e8f0; padding-top: 10px; }
     </style>
 </head>
@@ -66,7 +29,6 @@
 
 <div class="app-container">
     <div id="map-canvas"></div>
-    
     <div class="control-panel">
         <h1>상권 예측 대시보드 <span id="layer-indicator" class="zoom-badge">자치구 광역 모드</span></h1>
         
@@ -80,6 +42,14 @@
             <div class="meta-label">📈 향후 틈새상권 성장 예측</div>
             <div id="grade-display" class="grade-box" style="background: #f1f5f9; color: #64748b;">
                 지역을 클릭해 주세요
+            </div>
+            <div class="detail-item" style="margin-top: 10px;">
+                <span class="detail-label">🎯 미래 핫플 지수 (Score)</span>
+                <span id="score-display" class="detail-value">-</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">🏆 서울시 통합 순위 (Rank)</span>
+                <span id="rank-display" class="detail-value">-</span>
             </div>
         </div>
 
@@ -97,9 +67,10 @@
         
         <div style="flex: 1;"></div> 
         <div class="footer-tip">
-            🎨 <b>상권 성장 등급 시각화 내비게이션</b><br>
-            • 행정동 모드로 확대 시 전체 동의 핫플등급이 **파랑(우수) -> 빨강(정체)** 그라데이션 색상으로 자동 표출됩니다.<br>
-            • **개업 등급 논리:** 핫플지수(성장성)가 높으면서 동시에 임대료가 저렴한 곳일수록 최상위 등급이 부여됩니다.
+            🎨 <b>정문화 그라데이션 가이드 (Diverging Scale)</b><br>
+            • **1~4등급 (파랑 계열):** 미래 성장 가능성 높은 핵심지역<br>
+            • **5등급 (연회색 #E7E7E7):** 평균 수준의 상권 흐름<br>
+            • **6~9등급 (빨강 계열):** 포화 및 과열 경쟁 우려 상권
         </div>
     </div>
 </div>
@@ -113,14 +84,36 @@
     let currentMode = 'gu';
     let guData = [], dongData = [];
 
-    // 🎨 등급별 그라데이션 색상 맵 (1등급 파랑 ~ 9등급 빨강)
+    // 🎨 정훈님이 직접 요청하신 세련된 파랑 ↔ 연회색 ↔ 빨강 그라데이션 맵핑
     function getGradeColor(grade) {
-        if (!grade) return '#e2e8f0'; // 데이터 없는 경우 연회색
+        if (!grade) return '#f1f5f9'; 
         const colorMap = {
-            1: '#0284c7', 2: '#38bdf8', 3: '#4ade80', 4: '#facc15', 5: '#f97316', 
-            6: '#ea580c', 7: '#ef4444', 8: '#dc2626', 9: '#b91c1c'
+            1: '#083DFF', // 진한 파랑
+            2: '#356DFF', 
+            3: '#6F98FF', 
+            4: '#A6BFFF', // 연한 파랑
+            5: '#E7E7E7', // 중앙 연회색 🤍
+            6: '#FFC7C7', // 연한 빨강
+            7: '#FF8D8D', 
+            8: '#FF5252', 
+            9: '#D90429'  // 진한 빨강
         };
-        return colorMap[grade] || '#e2e8f0';
+        return colorMap[grade] || '#f1f5f9';
+    }
+
+    // 이름 불일치 교정 및 객체 데이터 안전하게 찾아오기
+    function findDongData(geoName) {
+        if (dongGradeData[geoName]) return dongGradeData[geoName];
+        
+        const cleanName = geoName.replace('제', '');
+        if (dongGradeData[cleanName]) return dongGradeData[cleanName];
+
+        for (let key in dongGradeData) {
+            if (geoName.includes(key) || key.includes(geoName)) {
+                return dongGradeData[key];
+            }
+        }
+        return null; 
     }
 
     Promise.all([
@@ -136,15 +129,15 @@
         guData = guGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code }));
         dongData = dongGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code }));
 
-        // 🌟 [핵심 변경] 모드에 따라 지도 전체 색상을 쫙 뿌려주는 옵션 함수
         function getMapOption(mode) {
             return {
                 tooltip: {
                     trigger: 'item',
                     formatter: function(params) {
                         if (mode === 'dong') {
-                            const grade = dongGradeData[params.name] || '-';
-                            return `<b>${params.name}</b><br>예측 핫플등급: ${grade}등급`;
+                            const res = findDongData(params.name);
+                            const gradeText = res ? `${res.grade}등급` : '데이터 없음';
+                            return `<b>${params.name}</b><br>예측 핫플등급: ${gradeText}`;
                         }
                         return `<b>${params.name}</b>`;
                     },
@@ -157,7 +150,7 @@
                     roam: true,
                     scaleLimit: { min: 0.8, max: 20 },
                     label: { 
-                        show: mode === 'gu', // 구 모드일 때만 라벨 보이기 (동 모드는 너무 텍스트가 겹치므로 마우스 오버 추천)
+                        show: mode === 'gu', 
                         color: '#334155',
                         fontSize: 10,
                         fontWeight: 'bold'
@@ -170,10 +163,10 @@
                         borderColor: mode === 'gu' ? '#475569' : '#ffffff', 
                         borderWidth: mode === 'gu' ? 1.8 : 0.6 
                     },
-                    // 🌟 [전체 도색] 동 모드일 때 data.json 값을 읽어와 지도 구역에 색상을 쫙 칠해줍니다.
                     data: (mode === 'gu' ? guData : dongData).map(item => {
                         if (mode === 'dong') {
-                            const grade = dongGradeData[item.name];
+                            const res = findDongData(item.name);
+                            const grade = res ? res.grade : null;
                             const isSelected = item.name === selectedRegionName;
                             return {
                                 ...item,
@@ -184,25 +177,19 @@
                                 }
                             };
                         } else {
-                            // 구 모드일 때 선택 강조
                             const isSelected = item.name === selectedRegionName;
-                            return {
-                                ...item,
-                                itemStyle: { areaColor: isSelected ? '#0284c7' : '#ffffff' }
-                            };
+                            return { ...item, itemStyle: { areaColor: isSelected ? '#083DFF' : '#ffffff' } };
                         }
                     })
                 }]
             };
         }
 
-        // 초기 화면 세팅 (구 단위)
         chart.setOption({
             ...getMapOption('gu'),
             series: [{ ...getMapOption('gu').series[0], zoom: 1.0, center: [126.9780, 37.5665] }]
         });
 
-        // 줌 확대/축소 감지하여 모드 스위칭
         chart.on('georoam', function (params) {
             const optionModel = chart.getOption();
             const liveZoom = optionModel.series[0].zoom;
@@ -210,18 +197,14 @@
             
             if (params.zoom != null && params.originX != null && params.originY != null) {
                 let targetMode = liveZoom > 2.5 ? 'dong' : 'gu';
-
                 if (targetMode !== currentMode) {
                     currentMode = targetMode;
                     badge.innerText = targetMode === 'dong' ? "행정동 정밀 모드" : "자치구 광역 모드";
                     badge.style.backgroundColor = targetMode === 'dong' ? "#ea580c" : "#0284c7";
-
-                    // 모드가 바뀌면 전체 지도 색상을 새로고침하여 쫙 뿌림
                     chart.setOption({
                         series: [{
                             map: targetMode === 'gu' ? 'seoul_gu' : 'seoul_dong',
-                            zoom: liveZoom,
-                            center: liveCenter,
+                            zoom: liveZoom, center: liveCenter,
                             label: { show: targetMode === 'gu' },
                             data: getMapOption(targetMode).series[0].data
                         }]
@@ -230,57 +213,65 @@
             }
         });
 
-        // 🖱️ 클릭 시 대시보드 데이터 연동 및 선택 지역 테두리 강조
+        // 🖱️ 클릭 시 확장 객체 구조(`score`, `rank`, `grade`)를 싹 긁어와 화면에 뿌림
         chart.on('click', function(params) {
             const regionName = params.name;
             const regionCode = params.data ? (params.data.code || "-") : "-";
             selectedRegionName = regionName;
             
-            let currentGrade = 5; 
+            let score = "-";
+            let rank = "-";
+            let grade = 5; // 기본값 연회색 매핑
             
             if (currentMode === 'dong') {
-                currentGrade = dongGradeData[regionName] || 5;
+                const res = findDongData(regionName);
+                if (res) {
+                    score = res.score.toFixed(6); // 소수점 6자리 고정
+                    rank = res.rank + " 위 / 374";
+                    grade = res.grade;
+                }
             } else {
-                currentGrade = Math.floor(Math.random() * 9) + 1;
+                grade = Math.floor(Math.random() * 9) + 1;
             }
 
-            // 1. 기본 인포 상자 업데이트
+            // 1. 기본 인포 대시보드 업데이트
             document.getElementById('current-region').innerText = regionName;
             document.getElementById('current-code').innerText = (currentMode === 'gu' ? "자치구 코드: " : "행정동 코드: ") + regionCode;
             
             const gradeDisplay = document.getElementById('grade-display');
-            gradeDisplay.innerText = "🔥 미래 핫플: " + currentGrade + " 등급";
-            gradeDisplay.style.backgroundColor = getGradeColor(currentGrade);
-            gradeDisplay.style.color = (currentGrade <= 3 || currentGrade >= 7) ? '#ffffff' : '#0f172a';
+            gradeDisplay.innerText = "🔥 미래 핫플: " + grade + " 등급";
+            gradeDisplay.style.backgroundColor = getGradeColor(grade);
+            
+            // 시인성 조절 (5등급 연회색이나 연한 파랑/연한 빨강은 글씨를 검은색으로, 양끝단은 흰색으로)
+            gradeDisplay.style.color = (grade === 1 || grade === 2 || grade === 9 || grade === 8) ? '#ffffff' : '#0f172a';
 
-            // 🌟 2. [가성비 논리 반영] 임대료 및 개업추천등급 연산 (정훈님의 논리 시뮬레이션)
-            // 임대료 수준 랜덤 정의 (평당 8만 원 ~ 25만 원 선)
+            // 🌟 새롭게 연동된 점수와 순위 텍스트 꽂아주기
+            document.getElementById('score-display').innerText = score;
+            document.getElementById('rank-display').innerText = rank;
+
+            // 2. 가성비 임대료 연산 로직
             const randomRentPrice = Math.floor(Math.random() * 18) + 8; 
             document.getElementById('rent-display').innerText = `평당 약 ${randomRentPrice} 만원`;
 
-            // 논리 구조: 핫플 등급이 높고(숫자가 작음) 임대료가 저렴할수록(15만원 이하) 최상위 등급 부여
-            let recommendRank = "C (보통)";
-            let rankColor = "#64748b";
+            let recommendRank = "B (평범)";
+            let rankColor = "#eab308";
 
-            if (currentGrade <= 3 && randomRentPrice <= 15) {
+            if (grade <= 3 && randomRentPrice <= 15) {
                 recommendRank = "👑 S (대박 추천 - 저임대 고성장)";
-                rankColor = "#0284c7";
-            } else if (currentGrade <= 5 && randomRentPrice <= 18) {
+                rankColor = "#083DFF";
+            } else if (grade <= 5 && randomRentPrice <= 18) {
                 recommendRank = "⭐ A (우수 상권)";
                 rankColor = "#22c55e";
-            } else if (currentGrade >= 7 || randomRentPrice >= 22) {
+            } else if (grade >= 7 || randomRentPrice >= 22) {
                 recommendRank = "⚠️ D (주의 - 고임대 저성장)";
                 rankColor = "#ef4444";
-            } else {
-                recommendRank = "B (평범)";
-                rankColor = "#eab308";
             }
 
             const recDisplay = document.getElementById('recommend-display');
             recDisplay.innerText = recommendRank;
             recDisplay.style.color = rankColor;
 
-            // 3. 지도 상태 업데이트 (선택된 곳 테두리 강조)
+            // 3. 지도 상태 업데이트
             const optionModel = chart.getOption();
             chart.setOption({
                 series: [{
