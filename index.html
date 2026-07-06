@@ -84,24 +84,18 @@
     let currentMode = 'gu';
     let guData = [], dongData = [];
 
-    // 🎨 정훈님이 직접 요청하신 세련된 파랑 ↔ 연회색 ↔ 빨강 그라데이션 맵핑
+    // 정훈님이 요청하신 세련된 파랑 ↔ 연회색 ↔ 빨강 그라데이션 맵핑
     function getGradeColor(grade) {
         if (!grade) return '#f1f5f9'; 
         const colorMap = {
-            1: '#083DFF', // 진한 파랑
-            2: '#356DFF', 
-            3: '#6F98FF', 
-            4: '#A6BFFF', // 연한 파랑
-            5: '#E7E7E7', // 중앙 연회색 🤍
-            6: '#FFC7C7', // 연한 빨강
-            7: '#FF8D8D', 
-            8: '#FF5252', 
-            9: '#D90429'  // 진한 빨강
+            1: '#083DFF', 2: '#356DFF', 3: '#6F98FF', 4: '#A6BFFF', 
+            5: '#E7E7E7', 
+            6: '#FFC7C7', 7: '#FF8D8D', 8: '#FF5252', 9: '#D90429'
         };
         return colorMap[grade] || '#f1f5f9';
     }
 
-    // 이름 불일치 교정 및 객체 데이터 안전하게 찾아오기
+    // 이름 불일치 교정 함수
     function findDongData(geoName) {
         if (dongGradeData[geoName]) return dongGradeData[geoName];
         
@@ -130,6 +124,44 @@
         dongData = dongGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code }));
 
         function getMapOption(mode) {
+            const isGu = mode === 'gu';
+            const baseData = isGu ? guData : dongData;
+
+            // 🌟 맵 확대 시 모든 동이 처음부터 컬러 그라데이션으로 쫙 깔리도록 맵핑 데이터 가공
+            const mappedData = baseData.map(item => {
+                const isSelected = item.name === selectedRegionName;
+                if (!isGu) {
+                    const res = findDongData(item.name);
+                    const grade = res ? res.grade : null;
+                    const defaultColor = getGradeColor(grade);
+                    return {
+                        ...item,
+                        itemStyle: {
+                            areaColor: defaultColor,
+                            borderWidth: isSelected ? 3 : 0.6,
+                            borderColor: isSelected ? '#000000' : '#ffffff'
+                        },
+                        // 🌟 [핵심 수정 3] 커서 가져다 대도 검은색 변하지 않고 원본 그라데이션 색 그대로 유지
+                        emphasis: {
+                            itemStyle: {
+                                areaColor: defaultColor, 
+                                borderWidth: isSelected ? 3 : 1,
+                                borderColor: isSelected ? '#000000' : '#475569'
+                            }
+                        }
+                    };
+                } else {
+                    const defaultColor = isSelected ? '#083DFF' : '#ffffff';
+                    return {
+                        ...item,
+                        itemStyle: { areaColor: defaultColor },
+                        emphasis: {
+                            itemStyle: { areaColor: defaultColor }
+                        }
+                    };
+                }
+            });
+
             return {
                 tooltip: {
                     trigger: 'item',
@@ -146,41 +178,24 @@
                 },
                 series: [{
                     type: 'map',
-                    map: mode === 'gu' ? 'seoul_gu' : 'seoul_dong',
-                    roam: true,
+                    map: isGu ? 'seoul_gu' : 'seoul_dong',
+                    
+                    // 🌟 [핵심 수정 1] 휠 굴릴 때 화면 튕김 현상 방지: zoom(확대축소)만 허용하고 move(이동)는 드래그로 분리
+                    roam: true, 
+                    
                     scaleLimit: { min: 0.8, max: 20 },
                     label: { 
-                        show: mode === 'gu', 
+                        show: isGu, 
                         color: '#334155',
                         fontSize: 10,
                         fontWeight: 'bold'
                     },
-                    emphasis: { 
-                        label: { show: true, color: '#fff' }, 
-                        itemStyle: { areaColor: '#0f172a', shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.3)' } 
-                    },
                     itemStyle: { 
-                        borderColor: mode === 'gu' ? '#475569' : '#ffffff', 
-                        borderWidth: mode === 'gu' ? 1.8 : 0.6 
+                        borderColor: isGu ? '#475569' : '#ffffff', 
+                        borderWidth: isGu ? 1.8 : 0.6 
                     },
-                    data: (mode === 'gu' ? guData : dongData).map(item => {
-                        if (mode === 'dong') {
-                            const res = findDongData(item.name);
-                            const grade = res ? res.grade : null;
-                            const isSelected = item.name === selectedRegionName;
-                            return {
-                                ...item,
-                                itemStyle: {
-                                    areaColor: getGradeColor(grade),
-                                    borderWidth: isSelected ? 3 : 0.6,
-                                    borderColor: isSelected ? '#000000' : '#ffffff'
-                                }
-                            };
-                        } else {
-                            const isSelected = item.name === selectedRegionName;
-                            return { ...item, itemStyle: { areaColor: isSelected ? '#083DFF' : '#ffffff' } };
-                        }
-                    })
+                    // 🌟 [핵심 수정 2] 전체 동이 통째로 바인딩되도록 연결
+                    data: mappedData 
                 }]
             };
         }
@@ -190,6 +205,7 @@
             series: [{ ...getMapOption('gu').series[0], zoom: 1.0, center: [126.9780, 37.5665] }]
         });
 
+        // 줌 감지 후 동/구 레이어 스위칭 로직
         chart.on('georoam', function (params) {
             const optionModel = chart.getOption();
             const liveZoom = optionModel.series[0].zoom;
@@ -201,19 +217,21 @@
                     currentMode = targetMode;
                     badge.innerText = targetMode === 'dong' ? "행정동 정밀 모드" : "자치구 광역 모드";
                     badge.style.backgroundColor = targetMode === 'dong' ? "#ea580c" : "#0284c7";
+                    
+                    const newOption = getMapOption(targetMode);
                     chart.setOption({
                         series: [{
                             map: targetMode === 'gu' ? 'seoul_gu' : 'seoul_dong',
                             zoom: liveZoom, center: liveCenter,
                             label: { show: targetMode === 'gu' },
-                            data: getMapOption(targetMode).series[0].data
+                            data: newOption.series[0].data
                         }]
                     }, {lazyUpdate: false});
                 }
             }
         });
 
-        // 🖱️ 클릭 시 확장 객체 구조(`score`, `rank`, `grade`)를 싹 긁어와 화면에 뿌림
+        // 클릭 이벤트
         chart.on('click', function(params) {
             const regionName = params.name;
             const regionCode = params.data ? (params.data.code || "-") : "-";
@@ -221,12 +239,12 @@
             
             let score = "-";
             let rank = "-";
-            let grade = 5; // 기본값 연회색 매핑
+            let grade = 5;
             
             if (currentMode === 'dong') {
                 const res = findDongData(regionName);
                 if (res) {
-                    score = res.score.toFixed(6); // 소수점 6자리 고정
+                    score = res.score.toFixed(6);
                     rank = res.rank + " 위 / 374";
                     grade = res.grade;
                 }
@@ -234,22 +252,17 @@
                 grade = Math.floor(Math.random() * 9) + 1;
             }
 
-            // 1. 기본 인포 대시보드 업데이트
             document.getElementById('current-region').innerText = regionName;
             document.getElementById('current-code').innerText = (currentMode === 'gu' ? "자치구 코드: " : "행정동 코드: ") + regionCode;
             
             const gradeDisplay = document.getElementById('grade-display');
             gradeDisplay.innerText = "🔥 미래 핫플: " + grade + " 등급";
             gradeDisplay.style.backgroundColor = getGradeColor(grade);
-            
-            // 시인성 조절 (5등급 연회색이나 연한 파랑/연한 빨강은 글씨를 검은색으로, 양끝단은 흰색으로)
             gradeDisplay.style.color = (grade === 1 || grade === 2 || grade === 9 || grade === 8) ? '#ffffff' : '#0f172a';
 
-            // 🌟 새롭게 연동된 점수와 순위 텍스트 꽂아주기
             document.getElementById('score-display').innerText = score;
             document.getElementById('rank-display').innerText = rank;
 
-            // 2. 가성비 임대료 연산 로직
             const randomRentPrice = Math.floor(Math.random() * 18) + 8; 
             document.getElementById('rent-display').innerText = `평당 약 ${randomRentPrice} 만원`;
 
@@ -271,7 +284,6 @@
             recDisplay.innerText = recommendRank;
             recDisplay.style.color = rankColor;
 
-            // 3. 지도 상태 업데이트
             const optionModel = chart.getOption();
             chart.setOption({
                 series: [{
