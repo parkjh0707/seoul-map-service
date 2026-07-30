@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>서울 상권 성장 예측 플랫폼</title>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<!-- 카카오맵 JavaScript SDK: appkey를 발급받은 JavaScript 키로 교체하세요 -->
+<script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=71a3beea6d27904346a98043ac179d3f&autoload=false"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -130,7 +131,22 @@
     border-radius: 16px;
     overflow: hidden;
   }
-  #map-canvas { width: 100%; height: 100%; cursor: crosshair; }
+  #map-canvas { width: 100%; height: 100%; }
+
+  .map-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(14, 20, 36, 0.95);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-primary);
+    z-index: 20;
+    display: none;
+    white-space: nowrap;
+  }
 
   .loading-overlay {
     position: absolute; inset: 0;
@@ -140,8 +156,10 @@
     color: var(--text-secondary);
     font-size: 13px;
     font-family: var(--font-mono);
+    text-align: center;
+    padding: 30px;
     transition: opacity 0.4s ease;
-    z-index: 5;
+    z-index: 10;
   }
   .loading-overlay.hidden { opacity: 0; pointer-events: none; }
   .loading-spinner {
@@ -278,8 +296,6 @@
     display: block; font-style: normal; color: var(--text-tertiary); font-size: 10px; margin-top: 2px;
   }
 
-  /* Tooltip (echarts) styling handled via JS backgroundColor/textStyle */
-
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 
@@ -312,9 +328,10 @@
   <main class="workspace">
     <div class="map-pane">
       <div id="map-canvas"></div>
+      <div id="map-tooltip" class="map-tooltip"></div>
       <div id="loading-overlay" class="loading-overlay">
         <div class="loading-spinner"></div>
-        <p>서울시 행정구역 데이터 불러오는 중…</p>
+        <p>카카오맵 및 서울시 행정구역 데이터 불러오는 중…</p>
       </div>
     </div>
 
@@ -373,21 +390,26 @@
 </div>
 
 <script>
+  // ---------- 공용 상태 ----------
   let dongGradeData = {};
   const mapCanvasEl = document.getElementById('map-canvas');
-  const chart = echarts.init(mapCanvasEl, null, { renderer: 'canvas' });
+  const tooltipEl = document.getElementById('map-tooltip');
   const modeBadge = document.getElementById('layer-indicator');
   const modeText = modeBadge.querySelector('.mode-text');
   const loadingOverlay = document.getElementById('loading-overlay');
-
   const gaugeFill = document.getElementById('gauge-fill');
   const gaugeCircumference = 2 * Math.PI * 52; // ≈ 326.73
 
   let selectedRegionName = null;
   let currentMode = 'gu';
-  let guData = [], dongData = [];
+  let map = null;
+  let guGroups = [];
+  let dongGroups = [];
 
-  // 파랑 ↔ 연회색 ↔ 빨강 그라데이션 색상맵 (기능적 데이터 인코딩 — 유지)
+  // 레벨이 이 값 이하로 내려가면(더 확대하면) 행정동 정밀 모드로 전환
+  const DONG_LEVEL_THRESHOLD = 5;
+
+  // 빨강(좋음) ↔ 연회색(평균) ↔ 파랑(나쁨) 그라데이션 색상맵
   function getGradeColor(grade) {
     if (!grade) return '#3a4560';
     const colorMap = {
@@ -409,252 +431,200 @@
     return null;
   }
 
-  Promise.all([
-    fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_municipalities_geo.json").then(r => r.json()),
-    fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_submunicipalities_geo.json").then(r => r.json()),
-    fetch("./data.json").then(r => r.json())
-  ]).then(([guGeojson, dongGeojson, loadedGradeData]) => {
-
-    dongGradeData = loadedGradeData;
-    echarts.registerMap('seoul_gu', guGeojson);
-    echarts.registerMap('seoul_dong', dongGeojson);
-
-    guData = guGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code }));
-    dongData = dongGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code }));
-
-    function getMapOption(mode) {
-      const isGu = mode === 'gu';
-      const baseData = isGu ? guData : dongData;
-
-      const mappedData = baseData.map(item => {
-        const isSelected = item.name === selectedRegionName;
-        if (!isGu) {
-          const res = findDongData(item.name);
-          const grade = res ? res.grade : null;
-          const defaultColor = getGradeColor(grade);
-          return {
-            ...item,
-            itemStyle: {
-              areaColor: defaultColor,
-              borderWidth: isSelected ? 2.5 : 0.4,
-              borderColor: isSelected ? '#F2B84B' : '#0E1424'
-            },
-            emphasis: {
-              itemStyle: {
-                areaColor: defaultColor,
-                borderWidth: isSelected ? 2.5 : 1.2,
-                borderColor: isSelected ? '#F2B84B' : '#33D6C3'
-              }
-            }
-          };
-        } else {
-          const defaultColor = isSelected ? '#F2B84B' : '#161F33';
-          return {
-            ...item,
-            itemStyle: { areaColor: defaultColor },
-            emphasis: { itemStyle: { areaColor: isSelected ? '#F2B84B' : '#1F2C4A' } }
-          };
-        }
-      });
-
-      return {
-        tooltip: {
-          trigger: 'item',
-          formatter: function (params) {
-            if (mode === 'dong') {
-              const res = findDongData(params.name);
-              const gradeText = res ? `${res.grade}등급` : '데이터 없음';
-              return `<b>${params.name}</b><br>예측 핫플등급: ${gradeText}`;
-            }
-            return `<b>${params.name}</b>`;
-          },
-          backgroundColor: 'rgba(14, 20, 36, 0.95)',
-          borderColor: '#2E3B5A',
-          borderWidth: 1,
-          textStyle: { color: '#EEF2F9', fontSize: 12 }
-        },
-        series: [{
-          type: 'map',
-          map: isGu ? 'seoul_gu' : 'seoul_dong',
-          roam: 'move',
-          scaleLimit: { min: 0.9, max: 15 },
-          label: {
-            show: true,
-            color: isGu ? '#C9D2E3' : '#AEB9CE',
-            fontSize: isGu ? 11 : 8,
-            fontWeight: 'bold',
-            overflow: 'break'
-          },
-          itemStyle: {
-            borderColor: isGu ? '#3A4A70' : '#0E1424',
-            borderWidth: isGu ? 1.8 : 0.4
-          },
-          data: mappedData
-        }]
-      };
-    }
-
-    // 초기 화면 렌더링 (roam은 'move'로 제한 — 휠 줌은 아래에서 직접 계산해 커서 위치를 고정시킴)
-    chart.setOption({
-      ...getMapOption('gu'),
-      series: [{ ...getMapOption('gu').series[0], roam: 'move', zoom: 1 }]
-    });
-
-    loadingOverlay.classList.add('hidden');
-
-    function applyModeCheck(zoom) {
-      const targetMode = zoom > 2.5 ? 'dong' : 'gu';
-      if (targetMode === currentMode) return false;
-      currentMode = targetMode;
-      modeText.innerText = targetMode === 'dong' ? '행정동 정밀 모드' : '자치구 광역 모드';
-      modeBadge.classList.toggle('dong', targetMode === 'dong');
-      return true;
-    }
-
-    // 드래그 이동(georoam)은 echarts 기본 동작 그대로 사용
-    chart.on('georoam', function (params) {
-      if (params.zoom) {
-        // 드래그 중 pinch 등으로 zoom이 바뀌는 경우를 대비한 안전장치
-        const option = chart.getOption();
-        applyModeCheck(option.series[0].zoom);
-      }
-    });
-
-    // 휠 줌: 마우스 커서 아래의 지리좌표를 고정한 채로 확대/축소되도록 직접 계산
-    mapCanvasEl.addEventListener('wheel', function (e) {
-      e.preventDefault();
-      const rect = mapCanvasEl.getBoundingClientRect();
-      const offsetX = e.clientX - rect.left;
-      const offsetY = e.clientY - rect.top;
-
-      const opt = chart.getOption();
-      const oldZoom = opt.series[0].zoom || 1;
-
-      const geoAtCursor = chart.convertFromPixel({ seriesIndex: 0 }, [offsetX, offsetY]);
-      if (!geoAtCursor) return;
-
-      const zoomFactor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-      const newZoom = Math.max(0.9, Math.min(15, oldZoom * zoomFactor));
-
-      const modeChanged = applyModeCheck(newZoom);
-
-      if (modeChanged) {
-        // 구/동 지도 자체가 바뀌는 경계 지점: 좌표계가 달라지므로 전체를 다시 그림
-        const newOption = getMapOption(currentMode);
-        chart.setOption({
-          series: [{
-            type: 'map',
-            map: currentMode === 'dong' ? 'seoul_dong' : 'seoul_gu',
-            roam: 'move',
-            zoom: newZoom,
-            scaleLimit: { min: 0.9, max: 15 },
-            label: newOption.series[0].label,
-            itemStyle: newOption.series[0].itemStyle,
-            emphasis: newOption.series[0].emphasis,
-            data: newOption.series[0].data
-          }]
-        });
-        return;
-      }
-
-      // 같은 지도 내 확대/축소: zoom만 먼저 적용
-      chart.setOption({ series: [{ zoom: newZoom }] });
-
-      // 커서 아래 좌표가 새 줌 배율에서 어디로 이동했는지 확인
-      const geoAtCursorAfter = chart.convertFromPixel({ seriesIndex: 0 }, [offsetX, offsetY]);
-      if (!geoAtCursorAfter) return;
-
-      // 현재 중심의 지리좌표를 구해서, 커서 좌표가 원래 위치로 돌아오도록 중심을 보정
-      const currentCenterGeo = chart.convertFromPixel({ seriesIndex: 0 }, [rect.width / 2, rect.height / 2]);
-      if (!currentCenterGeo) return;
-
-      const newCenter = [
-        currentCenterGeo[0] + (geoAtCursor[0] - geoAtCursorAfter[0]),
-        currentCenterGeo[1] + (geoAtCursor[1] - geoAtCursorAfter[1])
-      ];
-
-      chart.setOption({ series: [{ center: newCenter }] });
-    }, { passive: false });
-
-    function setGauge(grade) {
-      const color = getGradeColor(grade);
-      const fillRatio = grade ? (10 - grade) / 9 : 0; // grade 1 → 거의 가득, 9 → 거의 빈 상태
-      const offset = gaugeCircumference * (1 - fillRatio);
-      gaugeFill.style.stroke = color;
-      gaugeFill.style.strokeDashoffset = offset;
-      const gradeNum = document.getElementById('grade-num');
-      gradeNum.innerText = grade || '—';
-      gradeNum.style.color = color;
-    }
-
-    // 클릭 이벤트
-    chart.on('click', function (params) {
-      const regionName = params.name;
-      const regionCode = params.data ? (params.data.code || "-") : "-";
-      selectedRegionName = regionName;
-
-      let score = "-";
-      let rank = "-";
-      let grade = null;
-
-      if (currentMode === 'dong') {
-        const res = findDongData(regionName);
-        if (res) {
-          score = res.score.toFixed(6);
-          rank = res.rank + " / 374";
-          grade = res.grade;
-        }
-      } else {
-        grade = Math.floor(Math.random() * 9) + 1;
-      }
-
-      document.getElementById('current-region').innerText = regionName;
-      document.getElementById('current-code').innerText =
-        (currentMode === 'gu' ? "자치구 코드 " : "행정동 코드 ") + regionCode;
-
-      setGauge(grade);
-      document.getElementById('score-display').innerText = score;
-      document.getElementById('rank-display').innerText = rank;
-
-      const randomRentPrice = Math.floor(Math.random() * 18) + 8;
-      document.getElementById('rent-display').innerText = `평당 약 ${randomRentPrice}만원`;
-
-      let recommendRank = "B · 평범";
-      let rankColor = "#93A1BC";
-      let rankBg = "var(--bg-card-hover)";
-
-      if (grade <= 3 && randomRentPrice <= 15) {
-        recommendRank = "👑 S · 대박 추천 (저임대 · 고성장)";
-        rankColor = "#0B1120"; rankBg = "#F2B84B";
-      } else if (grade <= 5 && randomRentPrice <= 18) {
-        recommendRank = "⭐ A · 우수 상권";
-        rankColor = "#0B1120"; rankBg = "#33D6C3";
-      } else if (grade >= 7 || randomRentPrice >= 22) {
-        recommendRank = "⚠️ D · 주의 (고임대 · 저성장)";
-        rankColor = "#FF8D8D"; rankBg = "rgba(255,82,82,0.14)";
-      }
-
-      const recDisplay = document.getElementById('recommend-display');
-      recDisplay.innerText = recommendRank;
-      recDisplay.style.color = rankColor;
-      recDisplay.style.background = rankBg;
-
-      const optionModel = chart.getOption();
-      chart.setOption({
-        series: [{
-          zoom: optionModel.series[0].zoom,
-          center: optionModel.series[0].center,
-          data: getMapOption(currentMode).series[0].data
-        }]
-      });
-    });
-  }).catch(err => {
-    loadingOverlay.querySelector('p').innerText = '데이터를 불러오지 못했습니다. 네트워크 상태를 확인해주세요.';
+  function showMapError(msg) {
     loadingOverlay.querySelector('.loading-spinner').style.display = 'none';
-    console.error(err);
-  });
+    loadingOverlay.querySelector('p').innerText = msg;
+    loadingOverlay.classList.remove('hidden');
+  }
 
-  window.addEventListener('resize', () => chart.resize());
+  // GeoJSON geometry(Polygon / MultiPolygon)를 카카오 LatLng 경로 배열로 변환
+  // (구멍이 있는 경계는 드물어 외곽선만 사용, MultiPolygon은 조각마다 별도 폴리곤으로 생성)
+  function geometryToPaths(geometry) {
+    const paths = [];
+    if (geometry.type === 'Polygon') {
+      const ring = geometry.coordinates[0];
+      paths.push(ring.map(([lng, lat]) => new kakao.maps.LatLng(lat, lng)));
+    } else if (geometry.type === 'MultiPolygon') {
+      geometry.coordinates.forEach(poly => {
+        const ring = poly[0];
+        paths.push(ring.map(([lng, lat]) => new kakao.maps.LatLng(lat, lng)));
+      });
+    }
+    return paths;
+  }
+
+  function buildGroups(geojson, mode) {
+    return geojson.features.map(feature => {
+      const name = feature.properties.name;
+      const code = feature.properties.code;
+      const paths = geometryToPaths(feature.geometry);
+      const grade = mode === 'dong' ? (findDongData(name) ? findDongData(name).grade : null) : null;
+      const baseColor = mode === 'dong' ? getGradeColor(grade) : '#161F33';
+
+      const group = { name, code, mode, grade, polygons: [] };
+
+      paths.forEach(path => {
+        const polygon = new kakao.maps.Polygon({
+          path: path,
+          strokeWeight: mode === 'dong' ? 1 : 2,
+          strokeColor: mode === 'dong' ? '#0E1424' : '#3A4A70',
+          strokeOpacity: 0.9,
+          fillColor: baseColor,
+          fillOpacity: mode === 'dong' ? 0.82 : 0.5
+        });
+
+        kakao.maps.event.addListener(polygon, 'mouseover', function () {
+          group.polygons.forEach(p => p.setOptions({
+            fillOpacity: mode === 'dong' ? 0.95 : 0.7,
+            strokeColor: '#33D6C3'
+          }));
+          tooltipEl.style.display = 'block';
+          const gradeText = mode === 'dong'
+            ? (group.grade ? `${group.grade}등급` : '데이터 없음')
+            : '확대해서 행정동을 확인하세요';
+          tooltipEl.innerHTML = `<b>${name}</b><br>${gradeText}`;
+        });
+
+        kakao.maps.event.addListener(polygon, 'mousemove', function (mouseEvent) {
+          const proj = map.getProjection();
+          const point = proj.pointFromCoords(mouseEvent.latLng);
+          tooltipEl.style.left = (point.x + 14) + 'px';
+          tooltipEl.style.top = (point.y + 14) + 'px';
+        });
+
+        kakao.maps.event.addListener(polygon, 'mouseout', function () {
+          const isSelected = group.name === selectedRegionName;
+          group.polygons.forEach(p => p.setOptions({
+            fillOpacity: mode === 'dong' ? 0.82 : 0.5,
+            strokeColor: isSelected ? '#F2B84B' : (mode === 'dong' ? '#0E1424' : '#3A4A70')
+          }));
+          tooltipEl.style.display = 'none';
+        });
+
+        kakao.maps.event.addListener(polygon, 'click', function () {
+          selectRegion(group);
+        });
+
+        group.polygons.push(polygon);
+      });
+
+      return group;
+    });
+  }
+
+  function showGroups(groups) { groups.forEach(g => g.polygons.forEach(p => p.setMap(map))); }
+  function hideGroups(groups) { groups.forEach(g => g.polygons.forEach(p => p.setMap(null))); }
+
+  function setGauge(grade) {
+    const color = getGradeColor(grade);
+    const fillRatio = grade ? (10 - grade) / 9 : 0; // 1등급 → 거의 가득, 9등급 → 거의 빈 상태
+    const offset = gaugeCircumference * (1 - fillRatio);
+    gaugeFill.style.stroke = color;
+    gaugeFill.style.strokeDashoffset = offset;
+    const gradeNum = document.getElementById('grade-num');
+    gradeNum.innerText = grade || '—';
+    gradeNum.style.color = color;
+  }
+
+  function selectRegion(group) {
+    selectedRegionName = group.name;
+    const list = group.mode === 'dong' ? dongGroups : guGroups;
+    list.forEach(g => {
+      const isSel = g.name === selectedRegionName;
+      g.polygons.forEach(p => p.setOptions({
+        strokeColor: isSel ? '#F2B84B' : (g.mode === 'dong' ? '#0E1424' : '#3A4A70'),
+        strokeWeight: isSel ? (g.mode === 'dong' ? 2.4 : 3) : (g.mode === 'dong' ? 1 : 2)
+      }));
+    });
+
+    let score = "-", rank = "-", grade = null;
+    if (group.mode === 'dong') {
+      const res = findDongData(group.name);
+      if (res) { score = res.score.toFixed(6); rank = res.rank + " / 374"; grade = res.grade; }
+    } else {
+      grade = Math.floor(Math.random() * 9) + 1;
+    }
+
+    document.getElementById('current-region').innerText = group.name;
+    document.getElementById('current-code').innerText =
+      (group.mode === 'gu' ? "자치구 코드 " : "행정동 코드 ") + (group.code || '-');
+
+    setGauge(grade);
+    document.getElementById('score-display').innerText = score;
+    document.getElementById('rank-display').innerText = rank;
+
+    const randomRentPrice = Math.floor(Math.random() * 18) + 8;
+    document.getElementById('rent-display').innerText = `평당 약 ${randomRentPrice}만원`;
+
+    let recommendRank = "B · 평범";
+    let rankColor = "#93A1BC";
+    let rankBg = "var(--bg-card-hover)";
+
+    if (grade <= 3 && randomRentPrice <= 15) {
+      recommendRank = "👑 S · 대박 추천 (저임대 · 고성장)";
+      rankColor = "#0B1120"; rankBg = "#F2B84B";
+    } else if (grade <= 5 && randomRentPrice <= 18) {
+      recommendRank = "⭐ A · 우수 상권";
+      rankColor = "#0B1120"; rankBg = "#33D6C3";
+    } else if (grade >= 7 || randomRentPrice >= 22) {
+      recommendRank = "⚠️ D · 주의 (고임대 · 저성장)";
+      rankColor = "#FF8D8D"; rankBg = "rgba(255,82,82,0.14)";
+    }
+
+    const recDisplay = document.getElementById('recommend-display');
+    recDisplay.innerText = recommendRank;
+    recDisplay.style.color = rankColor;
+    recDisplay.style.background = rankBg;
+  }
+
+  function initApp() {
+    const mapOption = {
+      center: new kakao.maps.LatLng(37.5665, 126.9780), // 서울시청 기준
+      level: 9
+    };
+    map = new kakao.maps.Map(mapCanvasEl, mapOption);
+
+    Promise.all([
+      fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_municipalities_geo.json").then(r => r.json()),
+      fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_submunicipalities_geo.json").then(r => r.json()),
+      fetch("./data.json").then(r => r.json())
+    ]).then(([guGeojson, dongGeojson, loadedGradeData]) => {
+
+      dongGradeData = loadedGradeData;
+      guGroups = buildGroups(guGeojson, 'gu');
+      dongGroups = buildGroups(dongGeojson, 'dong');
+
+      showGroups(guGroups); // 초기 화면은 자치구 단위만 표시
+      currentMode = 'gu';
+
+      loadingOverlay.classList.add('hidden');
+
+      kakao.maps.event.addListener(map, 'zoom_changed', function () {
+        const level = map.getLevel(); // 값이 작을수록 더 확대된 상태
+        const targetMode = level <= DONG_LEVEL_THRESHOLD ? 'dong' : 'gu';
+        if (targetMode === currentMode) return;
+
+        if (currentMode === 'gu') hideGroups(guGroups); else hideGroups(dongGroups);
+        currentMode = targetMode;
+        if (currentMode === 'dong') showGroups(dongGroups); else showGroups(guGroups);
+
+        modeText.innerText = currentMode === 'dong' ? '행정동 정밀 모드' : '자치구 광역 모드';
+        modeBadge.classList.toggle('dong', currentMode === 'dong');
+      });
+
+    }).catch(err => {
+      showMapError('행정구역 데이터를 불러오지 못했습니다. 네트워크 상태를 확인해주세요.');
+      console.error(err);
+    });
+  }
+
+  window.addEventListener('load', function () {
+    if (typeof kakao === 'undefined' || !kakao.maps) {
+      showMapError('카카오맵 API 키가 설정되지 않았습니다. index.html 상단의 YOUR_KAKAO_APP_KEY 를 발급받은 JavaScript 키로 교체해주세요.');
+      return;
+    }
+    kakao.maps.load(initApp);
+  });
 </script>
 
 </body>
