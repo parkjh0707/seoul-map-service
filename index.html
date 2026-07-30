@@ -265,9 +265,9 @@
     height: 10px;
     border-radius: 6px;
     background: linear-gradient(90deg,
-      #083DFF 0%, #356DFF 12.5%, #6F98FF 25%, #A6BFFF 37.5%,
+      #D90429 0%, #FF5252 12.5%, #FF8D8D 25%, #FFC7C7 37.5%,
       #E7E7E7 50%,
-      #FFC7C7 62.5%, #FF8D8D 75%, #FF5252 87.5%, #D90429 100%);
+      #A6BFFF 62.5%, #6F98FF 75%, #356DFF 87.5%, #083DFF 100%);
     margin-bottom: 10px;
   }
   .legend-ticks {
@@ -374,7 +374,8 @@
 
 <script>
   let dongGradeData = {};
-  const chart = echarts.init(document.getElementById('map-canvas'), null, { renderer: 'canvas' });
+  const mapCanvasEl = document.getElementById('map-canvas');
+  const chart = echarts.init(mapCanvasEl, null, { renderer: 'canvas' });
   const modeBadge = document.getElementById('layer-indicator');
   const modeText = modeBadge.querySelector('.mode-text');
   const loadingOverlay = document.getElementById('loading-overlay');
@@ -390,9 +391,9 @@
   function getGradeColor(grade) {
     if (!grade) return '#3a4560';
     const colorMap = {
-      1: '#083DFF', 2: '#356DFF', 3: '#6F98FF', 4: '#A6BFFF',
+      1: '#D90429', 2: '#FF5252', 3: '#FF8D8D', 4: '#FFC7C7',
       5: '#E7E7E7',
-      6: '#FFC7C7', 7: '#FF8D8D', 8: '#FF5252', 9: '#D90429'
+      6: '#A6BFFF', 7: '#6F98FF', 8: '#356DFF', 9: '#083DFF'
     };
     return colorMap[grade] || '#3a4560';
   }
@@ -475,7 +476,7 @@
         series: [{
           type: 'map',
           map: isGu ? 'seoul_gu' : 'seoul_dong',
-          roam: true,
+          roam: 'move',
           scaleLimit: { min: 0.9, max: 15 },
           label: {
             show: true,
@@ -493,40 +494,87 @@
       };
     }
 
-    // 초기 화면 렌더링
+    // 초기 화면 렌더링 (roam은 'move'로 제한 — 휠 줌은 아래에서 직접 계산해 커서 위치를 고정시킴)
     chart.setOption({
       ...getMapOption('gu'),
-      series: [{ ...getMapOption('gu').series[0], roam: true, zoom: 1 }]
+      series: [{ ...getMapOption('gu').series[0], roam: 'move', zoom: 1 }]
     });
 
     loadingOverlay.classList.add('hidden');
 
-    // 줌 이벤트 감지 및 레이어 스위칭 보정
-    chart.on('georoam', function () {
-      const option = chart.getOption();
-      const zoom = option.series[0].zoom;
+    function applyModeCheck(zoom) {
       const targetMode = zoom > 2.5 ? 'dong' : 'gu';
-      if (targetMode === currentMode) return;
+      if (targetMode === currentMode) return false;
       currentMode = targetMode;
-
       modeText.innerText = targetMode === 'dong' ? '행정동 정밀 모드' : '자치구 광역 모드';
       modeBadge.classList.toggle('dong', targetMode === 'dong');
+      return true;
+    }
 
-      const newOption = getMapOption(targetMode);
-      chart.setOption({
-        series: [{
-          type: 'map',
-          map: targetMode === 'dong' ? 'seoul_dong' : 'seoul_gu',
-          roam: true,
-          zoom: zoom,
-          scaleLimit: { min: 0.9, max: 15 },
-          label: newOption.series[0].label,
-          itemStyle: newOption.series[0].itemStyle,
-          emphasis: newOption.series[0].emphasis,
-          data: newOption.series[0].data
-        }]
-      });
+    // 드래그 이동(georoam)은 echarts 기본 동작 그대로 사용
+    chart.on('georoam', function (params) {
+      if (params.zoom) {
+        // 드래그 중 pinch 등으로 zoom이 바뀌는 경우를 대비한 안전장치
+        const option = chart.getOption();
+        applyModeCheck(option.series[0].zoom);
+      }
     });
+
+    // 휠 줌: 마우스 커서 아래의 지리좌표를 고정한 채로 확대/축소되도록 직접 계산
+    mapCanvasEl.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      const rect = mapCanvasEl.getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const offsetY = e.clientY - rect.top;
+
+      const opt = chart.getOption();
+      const oldZoom = opt.series[0].zoom || 1;
+
+      const geoAtCursor = chart.convertFromPixel({ seriesIndex: 0 }, [offsetX, offsetY]);
+      if (!geoAtCursor) return;
+
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const newZoom = Math.max(0.9, Math.min(15, oldZoom * zoomFactor));
+
+      const modeChanged = applyModeCheck(newZoom);
+
+      if (modeChanged) {
+        // 구/동 지도 자체가 바뀌는 경계 지점: 좌표계가 달라지므로 전체를 다시 그림
+        const newOption = getMapOption(currentMode);
+        chart.setOption({
+          series: [{
+            type: 'map',
+            map: currentMode === 'dong' ? 'seoul_dong' : 'seoul_gu',
+            roam: 'move',
+            zoom: newZoom,
+            scaleLimit: { min: 0.9, max: 15 },
+            label: newOption.series[0].label,
+            itemStyle: newOption.series[0].itemStyle,
+            emphasis: newOption.series[0].emphasis,
+            data: newOption.series[0].data
+          }]
+        });
+        return;
+      }
+
+      // 같은 지도 내 확대/축소: zoom만 먼저 적용
+      chart.setOption({ series: [{ zoom: newZoom }] });
+
+      // 커서 아래 좌표가 새 줌 배율에서 어디로 이동했는지 확인
+      const geoAtCursorAfter = chart.convertFromPixel({ seriesIndex: 0 }, [offsetX, offsetY]);
+      if (!geoAtCursorAfter) return;
+
+      // 현재 중심의 지리좌표를 구해서, 커서 좌표가 원래 위치로 돌아오도록 중심을 보정
+      const currentCenterGeo = chart.convertFromPixel({ seriesIndex: 0 }, [rect.width / 2, rect.height / 2]);
+      if (!currentCenterGeo) return;
+
+      const newCenter = [
+        currentCenterGeo[0] + (geoAtCursor[0] - geoAtCursorAfter[0]),
+        currentCenterGeo[1] + (geoAtCursor[1] - geoAtCursorAfter[1])
+      ];
+
+      chart.setOption({ series: [{ center: newCenter }] });
+    }, { passive: false });
 
     function setGauge(grade) {
       const color = getGradeColor(grade);
