@@ -148,6 +148,54 @@
     white-space: nowrap;
   }
 
+  .map-label {
+    padding: 2px 7px;
+    background: rgba(8, 11, 20, 0.55);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    pointer-events: none;
+    font-family: var(--font-display);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  }
+  .map-label.gu {
+    font-size: 13px;
+    font-weight: 800;
+    padding: 4px 10px;
+    background: rgba(8, 11, 20, 0.4);
+  }
+
+  .mode-toggle {
+    display: flex;
+    padding: 3px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    gap: 2px;
+  }
+  .toggle-btn {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+  .toggle-btn:hover { color: var(--text-primary); }
+  .toggle-btn.active {
+    background: var(--accent-gold);
+    color: #0B1120;
+  }
+
   .loading-overlay {
     position: absolute; inset: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -320,6 +368,10 @@
       <h1>상권 성장 예측 플랫폼</h1>
     </div>
     <div class="topbar-meta">
+      <div class="mode-toggle" id="color-mode-toggle">
+        <button type="button" class="toggle-btn active" data-mode="color">🎨 컬러 모드</button>
+        <button type="button" class="toggle-btn" data-mode="clean">🗺️ 클린 모드</button>
+      </div>
       <div class="stat-chip"><span class="stat-num">374</span><span class="stat-label">행정동 분석</span></div>
       <div id="layer-indicator" class="mode-pill"><span class="dot"></span><span class="mode-text">자치구 광역 모드</span></div>
     </div>
@@ -402,12 +454,33 @@
 
   let selectedRegionName = null;
   let currentMode = 'gu';
+  let colorMode = 'color'; // 'color' (한눈에 보기) | 'clean' (실제 지도 위주 탐색)
   let map = null;
   let guGroups = [];
   let dongGroups = [];
 
   // 레벨이 이 값 이하로 내려가면(더 확대하면) 행정동 정밀 모드로 전환
   const DONG_LEVEL_THRESHOLD = 5;
+
+  // 모드별 채우기 투명도 설정 — 컬러 모드는 색을 알아보되 지도가 비치는 정도, 클린 모드는 거의 투명(클릭 영역만 유지)
+  const OPACITY = {
+    dong: { color: { base: 0.4, hover: 0.6, selected: 0.6 }, clean: { base: 0.04, hover: 0.2, selected: 0.28 } },
+    gu:   { color: { base: 0.16, hover: 0.32, selected: 0.32 }, clean: { base: 0.02, hover: 0.16, selected: 0.22 } }
+  };
+
+  function regionOpacity(mode, state) {
+    // state: 'base' | 'hover' | 'selected'
+    return OPACITY[mode][colorMode][state];
+  }
+
+  // 폴리곤 파츠 중 정점이 가장 많은(가장 큰) 부분의 정점 평균으로 라벨 위치 근사
+  function computeCentroid(paths) {
+    let mainPath = paths[0];
+    paths.forEach(p => { if (p.length > mainPath.length) mainPath = p; });
+    let latSum = 0, lngSum = 0;
+    mainPath.forEach(ll => { latSum += ll.getLat(); lngSum += ll.getLng(); });
+    return new kakao.maps.LatLng(latSum / mainPath.length, lngSum / mainPath.length);
+  }
 
   // 빨강(좋음) ↔ 연회색(평균) ↔ 파랑(나쁨) 그라데이션 색상맵
   function getGradeColor(grade) {
@@ -461,7 +534,19 @@
       const grade = mode === 'dong' ? (findDongData(name) ? findDongData(name).grade : null) : null;
       const baseColor = mode === 'dong' ? getGradeColor(grade) : '#161F33';
 
-      const group = { name, code, mode, grade, polygons: [] };
+      const group = { name, code, mode, grade, polygons: [], labelOverlay: null };
+
+      const labelEl = document.createElement('div');
+      labelEl.className = mode === 'gu' ? 'map-label gu' : 'map-label';
+      labelEl.innerText = name;
+      group.labelOverlay = new kakao.maps.CustomOverlay({
+        position: computeCentroid(paths),
+        content: labelEl,
+        yAnchor: 0.5,
+        xAnchor: 0.5,
+        clickable: false,
+        zIndex: 3
+      });
 
       paths.forEach(path => {
         const polygon = new kakao.maps.Polygon({
@@ -470,12 +555,12 @@
           strokeColor: mode === 'dong' ? '#0E1424' : '#3A4A70',
           strokeOpacity: 0.9,
           fillColor: baseColor,
-          fillOpacity: mode === 'dong' ? 0.82 : 0.5
+          fillOpacity: regionOpacity(mode, 'base')
         });
 
         kakao.maps.event.addListener(polygon, 'mouseover', function () {
           group.polygons.forEach(p => p.setOptions({
-            fillOpacity: mode === 'dong' ? 0.95 : 0.7,
+            fillOpacity: regionOpacity(mode, 'hover'),
             strokeColor: '#33D6C3'
           }));
           tooltipEl.style.display = 'block';
@@ -495,7 +580,7 @@
         kakao.maps.event.addListener(polygon, 'mouseout', function () {
           const isSelected = group.name === selectedRegionName;
           group.polygons.forEach(p => p.setOptions({
-            fillOpacity: mode === 'dong' ? 0.82 : 0.5,
+            fillOpacity: regionOpacity(mode, isSelected ? 'selected' : 'base'),
             strokeColor: isSelected ? '#F2B84B' : (mode === 'dong' ? '#0E1424' : '#3A4A70')
           }));
           tooltipEl.style.display = 'none';
@@ -512,8 +597,22 @@
     });
   }
 
-  function showGroups(groups) { groups.forEach(g => g.polygons.forEach(p => p.setMap(map))); }
-  function hideGroups(groups) { groups.forEach(g => g.polygons.forEach(p => p.setMap(null))); }
+  function showGroups(groups) {
+    groups.forEach(g => { g.polygons.forEach(p => p.setMap(map)); g.labelOverlay.setMap(map); });
+  }
+  function hideGroups(groups) {
+    groups.forEach(g => { g.polygons.forEach(p => p.setMap(null)); g.labelOverlay.setMap(null); });
+  }
+
+  // 컬러/클린 모드 전환 시 현재 모든 폴리곤의 투명도를 다시 계산해 적용
+  function applyColorMode() {
+    [...guGroups, ...dongGroups].forEach(g => {
+      const isSelected = g.name === selectedRegionName;
+      g.polygons.forEach(p => p.setOptions({
+        fillOpacity: regionOpacity(g.mode, isSelected ? 'selected' : 'base')
+      }));
+    });
+  }
 
   function setGauge(grade) {
     const color = getGradeColor(grade);
@@ -533,7 +632,8 @@
       const isSel = g.name === selectedRegionName;
       g.polygons.forEach(p => p.setOptions({
         strokeColor: isSel ? '#F2B84B' : (g.mode === 'dong' ? '#0E1424' : '#3A4A70'),
-        strokeWeight: isSel ? (g.mode === 'dong' ? 2.4 : 3) : (g.mode === 'dong' ? 1 : 2)
+        strokeWeight: isSel ? (g.mode === 'dong' ? 2.4 : 3) : (g.mode === 'dong' ? 1 : 2),
+        fillOpacity: regionOpacity(g.mode, isSel ? 'selected' : 'base')
       }));
     });
 
@@ -619,6 +719,15 @@
   }
 
   window.addEventListener('load', function () {
+    const toggleButtons = document.querySelectorAll('#color-mode-toggle .toggle-btn');
+    toggleButtons.forEach(btn => {
+      btn.addEventListener('click', function () {
+        colorMode = btn.dataset.mode;
+        toggleButtons.forEach(b => b.classList.toggle('active', b === btn));
+        applyColorMode();
+      });
+    });
+
     if (typeof kakao === 'undefined' || !kakao.maps) {
       showMapError('카카오맵 API 키가 설정되지 않았습니다. index.html 상단의 YOUR_KAKAO_APP_KEY 를 발급받은 JavaScript 키로 교체해주세요.');
       return;
