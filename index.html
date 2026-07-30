@@ -1,328 +1,612 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>서울시 행정동 상권 예측 플랫폼</title>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Malgun Gothic', sans-serif; background-color: #f0f4f8; padding: 15px; overflow: hidden; }
-        .app-container { max-width: 1600px; height: calc(100vh - 30px); margin: 0 auto; display: flex; gap: 15px; background: #ffffff; padding: 15px; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
-        #map-canvas { flex: 3; height: 100%; border: 1px solid #cbd5e1; border-radius: 10px; background-color: #f8fafc; cursor: crosshair; }
-        .control-panel { flex: 1; height: 100%; padding: 20px; background-color: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 15px; min-width: 340px; }
-        h1 { font-size: 20px; color: #0f172a; border-bottom: 3px solid #0284c7; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .zoom-badge { font-size: 11px; background: #0284c7; color: white; padding: 3px 8px; border-radius: 20px; }
-        .meta-box { background: white; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
-        .meta-label { font-size: 12px; color: #64748b; font-weight: bold; margin-bottom: 6px; }
-        .meta-value { font-size: 22px; color: #0f172a; font-weight: bold; }
-        .meta-sub { font-size: 13px; color: #475569; margin-top: 5px; }
-        .grade-box { display: flex; align-items: center; justify-content: center; margin-top: 8px; padding: 12px; border-radius: 8px; font-weight: bold; font-size: 18px; }
-        .detail-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #e2e8f0; font-size: 14px; }
-        .detail-item:last-child { border-bottom: none; }
-        .detail-label { color: #475569; font-weight: 500; }
-        .detail-value { font-weight: bold; color: #0f172a; }
-        .footer-tip { font-size: 12px; color: #94a3b8; line-height: 1.5; border-top: 1px solid #e2e8f0; padding-top: 10px; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>서울 상권 성장 예측 플랫폼</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css" />
+<style>
+  :root {
+    --bg-canvas: #080B14;
+    --bg-surface: #0E1424;
+    --bg-card: #131B2E;
+    --bg-card-hover: #182238;
+    --border-subtle: #212C45;
+    --border-strong: #2E3B5A;
+    --text-primary: #EEF2F9;
+    --text-secondary: #93A1BC;
+    --text-tertiary: #576079;
+    --accent-gold: #F2B84B;
+    --accent-gold-dim: rgba(242, 184, 75, 0.14);
+    --accent-teal: #33D6C3;
+    --accent-teal-dim: rgba(51, 214, 195, 0.14);
+    --font-display: 'PretendardVariable', 'Pretendard', -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font-display);
+    background:
+      radial-gradient(circle at 15% -10%, rgba(51,214,195,0.08), transparent 45%),
+      radial-gradient(circle at 100% 10%, rgba(242,184,75,0.06), transparent 40%),
+      var(--bg-canvas);
+    color: var(--text-primary);
+    padding: 20px;
+    min-height: 100vh;
+  }
+
+  .shell {
+    max-width: 1680px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    height: calc(100vh - 40px);
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 4px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .eyebrow {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--accent-teal);
+    font-weight: 600;
+    margin-bottom: 6px;
+    font-family: var(--font-mono);
+  }
+  .brand h1 {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .topbar-meta { display: flex; align-items: center; gap: 12px; }
+  .stat-chip {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+  }
+  .stat-chip .stat-num {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--accent-gold);
+  }
+  .stat-chip .stat-label { font-size: 12px; color: var(--text-secondary); }
+
+  .mode-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--accent-teal-dim);
+    color: var(--accent-teal);
+    border: 1px solid rgba(51,214,195,0.3);
+    transition: all 0.25s ease;
+  }
+  .mode-pill.dong {
+    background: var(--accent-gold-dim);
+    color: var(--accent-gold);
+    border-color: rgba(242,184,75,0.35);
+  }
+  .mode-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  /* ---------- Workspace ---------- */
+  .workspace {
+    flex: 1;
+    display: flex;
+    gap: 16px;
+    min-height: 0;
+  }
+
+  .map-pane {
+    flex: 3;
+    position: relative;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  #map-canvas { width: 100%; height: 100%; cursor: crosshair; }
+
+  .loading-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px;
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-family: var(--font-mono);
+    transition: opacity 0.4s ease;
+    z-index: 5;
+  }
+  .loading-overlay.hidden { opacity: 0; pointer-events: none; }
+  .loading-spinner {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: 2.5px solid var(--border-strong);
+    border-top-color: var(--accent-teal);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- Panel ---------- */
+  .panel {
+    flex: 0 0 360px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    padding: 18px;
+    transition: border-color 0.3s ease, background 0.3s ease;
+  }
+
+  .card-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--text-tertiary);
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  /* Hero / selected region */
+  .hero-card { border-color: var(--border-strong); }
+  .region-name {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    transition: opacity 0.2s ease;
+  }
+  .region-code {
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  /* Gauge */
+  .gauge-card { display: flex; flex-direction: column; align-items: center; }
+  .gauge-wrap { position: relative; width: 168px; height: 168px; margin: 4px 0 6px; }
+  .gauge { width: 100%; height: 100%; transform: rotate(0deg); }
+  .gauge-track {
+    fill: none; stroke: var(--border-subtle); stroke-width: 10;
+  }
+  .gauge-fill {
+    fill: none; stroke: var(--text-tertiary); stroke-width: 10;
+    stroke-linecap: round;
+    transform-origin: 60px 60px;
+    transform: rotate(-90deg);
+    stroke-dasharray: 326.7;
+    stroke-dashoffset: 326.7;
+    transition: stroke-dashoffset 0.8s cubic-bezier(.4,0,.2,1), stroke 0.4s ease;
+  }
+  .gauge-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .gauge-grade {
+    font-family: var(--font-mono);
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text-secondary);
+    transition: color 0.4s ease;
+  }
+  .gauge-grade-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+  }
+
+  .gauge-footer {
+    width: 100%;
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border-subtle);
+  }
+  .metric { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .metric-label { font-size: 11px; color: var(--text-tertiary); }
+  .metric-value { font-size: 15px; font-weight: 700; }
+  .mono { font-family: var(--font-mono); }
+
+  /* Value card */
+  .value-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 14px; margin-bottom: 14px;
+    border-bottom: 1px dashed var(--border-subtle);
+  }
+  .value-label { font-size: 13px; color: var(--text-secondary); }
+  .value-num { font-size: 16px; font-weight: 700; color: var(--accent-gold); }
+  .recommend-badge {
+    display: inline-block;
+    padding: 9px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    background: var(--bg-card-hover);
+    color: var(--text-secondary);
+    transition: all 0.3s ease;
+  }
+
+  /* Legend */
+  .legend-bar {
+    height: 10px;
+    border-radius: 6px;
+    background: linear-gradient(90deg,
+      #083DFF 0%, #356DFF 12.5%, #6F98FF 25%, #A6BFFF 37.5%,
+      #E7E7E7 50%,
+      #FFC7C7 62.5%, #FF8D8D 75%, #FF5252 87.5%, #D90429 100%);
+    margin-bottom: 10px;
+  }
+  .legend-ticks {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--text-secondary); text-align: center;
+  }
+  .legend-ticks em {
+    display: block; font-style: normal; color: var(--text-tertiary); font-size: 10px; margin-top: 2px;
+  }
+
+  /* Tooltip (echarts) styling handled via JS backgroundColor/textStyle */
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+
+  @media (max-width: 900px) {
+    .shell { height: auto; }
+    .workspace { flex-direction: column; }
+    .map-pane { height: 55vh; }
+    .panel { flex: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+</style>
 </head>
 <body>
 
-<div class="app-container">
-    <div id="map-canvas"></div>
-    <div class="control-panel">
-        <h1>상권 예측 대시보드 <span id="layer-indicator" class="zoom-badge">자치구 광역 모드</span></h1>
-        
-        <div class="meta-box">
-            <div class="meta-label">📍 분석 선택 지역</div>
-            <div id="current-region" class="meta-value">지역을 클릭하세요</div>
-            <div id="current-code" class="meta-sub">행정구역 코드: -</div>
-        </div>
-
-        <div class="meta-box" style="background: #ffffff;">
-            <div class="meta-label">📈 향후 틈새상권 성장 예측</div>
-            <div id="grade-display" class="grade-box" style="background: #f1f5f9; color: #64748b;">
-                지역을 클릭해 주세요
-            </div>
-            <div class="detail-item" style="margin-top: 10px;">
-                <span class="detail-label">🎯 미래 핫플 지수 (Score)</span>
-                <span id="score-display" class="detail-value">-</span>
-            </div>
-            <div class="detail-item">
-                <span class="detail-label">🏆 서울시 통합 순위 (Rank)</span>
-                <span id="rank-display" class="detail-value">-</span>
-            </div>
-        </div>
-
-        <div class="meta-box">
-            <div class="meta-label">📊 상권 입지 가치 분석</div>
-            <div class="detail-item">
-                <span class="detail-label">💵 평균 예상 임대료</span>
-                <span id="rent-display" class="detail-value">-</span>
-            </div>
-            <div class="detail-item">
-                <span class="detail-label">🚀 가성비 개업 추천 등급</span>
-                <span id="recommend-display" class="detail-value">-</span>
-            </div>
-        </div>
-        
-        <div style="flex: 1;"></div> 
-        <div class="footer-tip">
-            🎨 <b>정문화 그라데이션 가이드 (Diverging Scale)</b><br>
-            • **1~4등급 (파랑 계열):** 미래 성장 가능성 높은 핵심지역<br>
-            • **5등급 (연회색 #E7E7E7):** 평균 수준의 상권 흐름<br>
-            • **6~9등급 (빨강 계열):** 포화 및 과열 경쟁 우려 상권
-        </div>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <span class="eyebrow">SEOUL RETAIL INTELLIGENCE · 산업공학 캡스톤</span>
+      <h1>상권 성장 예측 플랫폼</h1>
     </div>
+    <div class="topbar-meta">
+      <div class="stat-chip"><span class="stat-num">374</span><span class="stat-label">행정동 분석</span></div>
+      <div id="layer-indicator" class="mode-pill"><span class="dot"></span><span class="mode-text">자치구 광역 모드</span></div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <div class="map-pane">
+      <div id="map-canvas"></div>
+      <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <p>서울시 행정구역 데이터 불러오는 중…</p>
+      </div>
+    </div>
+
+    <aside class="panel">
+      <section class="card hero-card">
+        <div class="card-label">SELECTED · 분석 선택 지역</div>
+        <div id="current-region" class="region-name">지역을 클릭하세요</div>
+        <div id="current-code" class="region-code">행정구역 코드 —</div>
+      </section>
+
+      <section class="card gauge-card">
+        <div class="card-label" style="align-self:flex-start;">FORECAST · 향후 틈새상권 성장 예측</div>
+        <div class="gauge-wrap">
+          <svg class="gauge" viewBox="0 0 120 120">
+            <circle class="gauge-track" cx="60" cy="60" r="52"></circle>
+            <circle id="gauge-fill" class="gauge-fill" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <div class="gauge-center">
+            <div id="grade-num" class="gauge-grade">—</div>
+            <div class="gauge-grade-label">등급</div>
+          </div>
+        </div>
+        <div class="gauge-footer">
+          <div class="metric">
+            <span class="metric-label">🎯 미래 핫플 지수</span>
+            <span id="score-display" class="metric-value mono">—</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">🏆 서울시 순위</span>
+            <span id="rank-display" class="metric-value mono">—</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card value-card">
+        <div class="card-label">LOCATION VALUE · 상권 입지 가치 분석</div>
+        <div class="value-row">
+          <span class="value-label">💵 평균 예상 임대료</span>
+          <span id="rent-display" class="value-num mono">—</span>
+        </div>
+        <div class="card-label" style="margin-bottom:8px;">🚀 가성비 개업 추천 등급</div>
+        <div id="recommend-display" class="recommend-badge">등급 산정 대기중</div>
+      </section>
+
+      <section class="card legend-card">
+        <div class="card-label">SCALE · 등급 가이드 (Diverging Scale)</div>
+        <div class="legend-bar"></div>
+        <div class="legend-ticks">
+          <span>1등급<em>고성장 핵심</em></span>
+          <span>5등급<em>평균 흐름</em></span>
+          <span>9등급<em>과열 경쟁</em></span>
+        </div>
+      </section>
+    </aside>
+  </main>
 </div>
 
 <script>
-    let dongGradeData = {};
-    const chart = echarts.init(document.getElementById('map-canvas'), null, {renderer: 'canvas'});
-    const badge = document.getElementById('layer-indicator');
-    
-    let selectedRegionName = null;
-    let currentMode = 'gu';
-    let guData = [], dongData = [];
+  let dongGradeData = {};
+  const chart = echarts.init(document.getElementById('map-canvas'), null, { renderer: 'canvas' });
+  const modeBadge = document.getElementById('layer-indicator');
+  const modeText = modeBadge.querySelector('.mode-text');
+  const loadingOverlay = document.getElementById('loading-overlay');
 
-    // 파랑 ↔ 연회색 ↔ 빨강 그라데이션 색상맵
-    function getGradeColor(grade) {
-        if (!grade) return '#f1f5f9'; 
-        const colorMap = {
-            1: '#083DFF', 2: '#356DFF', 3: '#6F98FF', 4: '#A6BFFF', 
-            5: '#E7E7E7', 
-            6: '#FFC7C7', 7: '#FF8D8D', 8: '#FF5252', 9: '#D90429'
-        };
-        return colorMap[grade] || '#f1f5f9';
+  const gaugeFill = document.getElementById('gauge-fill');
+  const gaugeCircumference = 2 * Math.PI * 52; // ≈ 326.73
+
+  let selectedRegionName = null;
+  let currentMode = 'gu';
+  let guData = [], dongData = [];
+
+  // 파랑 ↔ 연회색 ↔ 빨강 그라데이션 색상맵 (기능적 데이터 인코딩 — 유지)
+  function getGradeColor(grade) {
+    if (!grade) return '#3a4560';
+    const colorMap = {
+      1: '#083DFF', 2: '#356DFF', 3: '#6F98FF', 4: '#A6BFFF',
+      5: '#E7E7E7',
+      6: '#FFC7C7', 7: '#FF8D8D', 8: '#FF5252', 9: '#D90429'
+    };
+    return colorMap[grade] || '#3a4560';
+  }
+
+  // 이름 예외 처리 매칭
+  function findDongData(geoName) {
+    if (dongGradeData[geoName]) return dongGradeData[geoName];
+    const cleanName = geoName.replace('제', '');
+    if (dongGradeData[cleanName]) return dongGradeData[cleanName];
+    for (let key in dongGradeData) {
+      if (geoName.includes(key) || key.includes(geoName)) return dongGradeData[key];
     }
+    return null;
+  }
 
-    // 이름 예외 처리 매칭
-    function findDongData(geoName) {
-        if (dongGradeData[geoName]) return dongGradeData[geoName];
-        
-        const cleanName = geoName.replace('제', '');
-        if (dongGradeData[cleanName]) return dongGradeData[cleanName];
+  Promise.all([
+    fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_municipalities_geo.json").then(r => r.json()),
+    fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_submunicipalities_geo.json").then(r => r.json()),
+    fetch("./data.json").then(r => r.json())
+  ]).then(([guGeojson, dongGeojson, loadedGradeData]) => {
 
-        for (let key in dongGradeData) {
-            if (geoName.includes(key) || key.includes(geoName)) {
-                return dongGradeData[key];
-            }
-        }
-        return null; 
-    }
+    dongGradeData = loadedGradeData;
+    echarts.registerMap('seoul_gu', guGeojson);
+    echarts.registerMap('seoul_dong', dongGeojson);
 
-    Promise.all([
-        fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_municipalities_geo.json").then(r => r.json()),
-        fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_submunicipalities_geo.json").then(r => r.json()),
-        fetch("./data.json").then(r => r.json())
-    ]).then(([guGeojson, dongGeojson, loadedGradeData]) => {
-        
-        dongGradeData = loadedGradeData;
-        echarts.registerMap('seoul_gu', guGeojson);
-        echarts.registerMap('seoul_dong', dongGeojson);
-        
-        guData = guGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code }));
-        dongData = dongGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code }));
+    guData = guGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code }));
+    dongData = dongGeojson.features.map(f => ({ name: f.properties.name, code: f.properties.code }));
 
-        function getMapOption(mode) {
-            const isGu = mode === 'gu';
-            const baseData = isGu ? guData : dongData;
+    function getMapOption(mode) {
+      const isGu = mode === 'gu';
+      const baseData = isGu ? guData : dongData;
 
-            const mappedData = baseData.map(item => {
-                const isSelected = item.name === selectedRegionName;
-                if (!isGu) {
-                    const res = findDongData(item.name);
-                    const grade = res ? res.grade : null;
-                    const defaultColor = getGradeColor(grade);
-                    return {
-                        ...item,
-                        itemStyle: {
-                            areaColor: defaultColor,
-                            borderWidth: isSelected ? 2.5 : 0.4,
-                            borderColor: isSelected ? '#000000' : '#ffffff'
-                        },
-                        emphasis: {
-                            itemStyle: {
-                                areaColor: defaultColor, 
-                                borderWidth: isSelected ? 2.5 : 1,
-                                borderColor: isSelected ? '#000000' : '#475569'
-                            }
-                        }
-                    };
-                } else {
-                    const defaultColor = isSelected ? '#083DFF' : '#ffffff';
-                    return {
-                        ...item,
-                        itemStyle: { areaColor: defaultColor },
-                        emphasis: { itemStyle: { areaColor: defaultColor } }
-                    };
-                }
-            });
-
-            return {
-                tooltip: {
-                    trigger: 'item',
-                    formatter: function(params) {
-                        if (mode === 'dong') {
-                            const res = findDongData(params.name);
-                            const gradeText = res ? `${res.grade}등급` : '데이터 없음';
-                            return `<b>${params.name}</b><br>예측 핫플등급: ${gradeText}`;
-                        }
-                        return `<b>${params.name}</b>`;
-                    },
-                    backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                    textStyle: { color: '#fff' }
-                },
-                series: [{
-                    type: 'map',
-                    map: isGu ? 'seoul_gu' : 'seoul_dong',
-                    
-                    // 🌟 [수정 1] 마우스 휠 축소/확대 시 중심축이 휙 틀어지지 않고 안정적으로 작동하게 제어
-                    roam: true, 
-                    
-                    scaleLimit: { min: 0.9, max: 15 },
-                    
-                    // 🌟 [수정 2] 확대했을 때 사진처럼 동 이름 텍스트들이 쫙 다 표시되도록 강제 설정
-                    label: { 
-                        show: true, 
-                        color: isGu ? '#1e293b' : '#334155', // 동 이름 글자 색상 선명하게 지정
-                        fontSize: isGu ? 11 : 8,
-                        fontWeight: 'bold',
-                        overflow: 'break' // 글자 겹침 방지 보조
-                    },
-                    itemStyle: { 
-                        borderColor: isGu ? '#475569' : '#ffffff', 
-                        borderWidth: isGu ? 1.8 : 0.4 
-                    },
-                    data: mappedData 
-                }]
-            };
-        }
-
-        // 초기 화면 렌더링
-chart.setOption({
-    ...getMapOption('gu'),
-    series: [{
-        ...getMapOption('gu').series[0],
-        roam: true,
-        zoom: 1
-    }]
-});
-
-        // 줌 이벤트 감지 및 레이어 스위칭 보정
-  chart.on('georoam', function () {
-
-    const option = chart.getOption();
-    const zoom = option.series[0].zoom;
-
-    const targetMode = zoom > 2.5 ? 'dong' : 'gu';
-
-    if (targetMode === currentMode) return;
-
-    currentMode = targetMode;
-
-    badge.innerText =
-        targetMode === 'dong'
-            ? "행정동 정밀 모드"
-            : "자치구 광역 모드";
-
-    badge.style.backgroundColor =
-        targetMode === 'dong'
-            ? "#ea580c"
-            : "#0284c7";
-
-    const newOption = getMapOption(targetMode);
-
-    chart.setOption({
-        series: [{
-            type: 'map',
-            map: targetMode === 'dong'
-                    ? 'seoul_dong'
-                    : 'seoul_gu',
-
-            roam: true,
-
-            zoom: zoom,
-
-            scaleLimit: {
-                min: 0.9,
-                max: 15
+      const mappedData = baseData.map(item => {
+        const isSelected = item.name === selectedRegionName;
+        if (!isGu) {
+          const res = findDongData(item.name);
+          const grade = res ? res.grade : null;
+          const defaultColor = getGradeColor(grade);
+          return {
+            ...item,
+            itemStyle: {
+              areaColor: defaultColor,
+              borderWidth: isSelected ? 2.5 : 0.4,
+              borderColor: isSelected ? '#F2B84B' : '#0E1424'
             },
+            emphasis: {
+              itemStyle: {
+                areaColor: defaultColor,
+                borderWidth: isSelected ? 2.5 : 1.2,
+                borderColor: isSelected ? '#F2B84B' : '#33D6C3'
+              }
+            }
+          };
+        } else {
+          const defaultColor = isSelected ? '#F2B84B' : '#161F33';
+          return {
+            ...item,
+            itemStyle: { areaColor: defaultColor },
+            emphasis: { itemStyle: { areaColor: isSelected ? '#F2B84B' : '#1F2C4A' } }
+          };
+        }
+      });
 
-            label: newOption.series[0].label,
-
-            itemStyle: newOption.series[0].itemStyle,
-
-            emphasis: newOption.series[0].emphasis,
-
-            data: newOption.series[0].data
+      return {
+        tooltip: {
+          trigger: 'item',
+          formatter: function (params) {
+            if (mode === 'dong') {
+              const res = findDongData(params.name);
+              const gradeText = res ? `${res.grade}등급` : '데이터 없음';
+              return `<b>${params.name}</b><br>예측 핫플등급: ${gradeText}`;
+            }
+            return `<b>${params.name}</b>`;
+          },
+          backgroundColor: 'rgba(14, 20, 36, 0.95)',
+          borderColor: '#2E3B5A',
+          borderWidth: 1,
+          textStyle: { color: '#EEF2F9', fontSize: 12 }
+        },
+        series: [{
+          type: 'map',
+          map: isGu ? 'seoul_gu' : 'seoul_dong',
+          roam: true,
+          scaleLimit: { min: 0.9, max: 15 },
+          label: {
+            show: true,
+            color: isGu ? '#C9D2E3' : '#AEB9CE',
+            fontSize: isGu ? 11 : 8,
+            fontWeight: 'bold',
+            overflow: 'break'
+          },
+          itemStyle: {
+            borderColor: isGu ? '#3A4A70' : '#0E1424',
+            borderWidth: isGu ? 1.8 : 0.4
+          },
+          data: mappedData
         }]
-    });
-});
-        // 클릭 이벤트
-        chart.on('click', function(params) {
-            const regionName = params.name;
-            const regionCode = params.data ? (params.data.code || "-") : "-";
-            selectedRegionName = regionName;
-            
-            let score = "-";
-            let rank = "-";
-            let grade = 5;
-            
-            if (currentMode === 'dong') {
-                const res = findDongData(regionName);
-                if (res) {
-                    score = res.score.toFixed(6);
-                    rank = res.rank + " 위 / 374";
-                    grade = res.grade;
-                }
-            } else {
-                grade = Math.floor(Math.random() * 9) + 1;
-            }
+      };
+    }
 
-            document.getElementById('current-region').innerText = regionName;
-            document.getElementById('current-code').innerText = (currentMode === 'gu' ? "자치구 코드: " : "행정동 코드: ") + regionCode;
-            
-            const gradeDisplay = document.getElementById('grade-display');
-            gradeDisplay.innerText = "🔥 미래 핫플: " + grade + " 등급";
-            gradeDisplay.style.backgroundColor = getGradeColor(grade);
-            gradeDisplay.style.color = (grade === 1 || grade === 2 || grade === 9 || grade === 8) ? '#ffffff' : '#0f172a';
-
-            document.getElementById('score-display').innerText = score;
-            document.getElementById('rank-display').innerText = rank;
-
-            const randomRentPrice = Math.floor(Math.random() * 18) + 8; 
-            document.getElementById('rent-display').innerText = `평당 약 ${randomRentPrice} 만원`;
-
-            let recommendRank = "B (평범)";
-            let rankColor = "#eab308";
-
-            if (grade <= 3 && randomRentPrice <= 15) {
-                recommendRank = "👑 S (대박 추천 - 저임대 고성장)";
-                rankColor = "#083DFF";
-            } else if (grade <= 5 && randomRentPrice <= 18) {
-                recommendRank = "⭐ A (우수 상권)";
-                rankColor = "#22c55e";
-            } else if (grade >= 7 || randomRentPrice >= 22) {
-                recommendRank = "⚠️ D (주의 - 고임대 저성장)";
-                rankColor = "#ef4444";
-            }
-
-            const recDisplay = document.getElementById('recommend-display');
-            recDisplay.innerText = recommendRank;
-            recDisplay.style.color = rankColor;
-
-            const optionModel = chart.getOption();
-            chart.setOption({
-                series: [{
-                    zoom: optionModel.series[0].zoom,
-                    center: optionModel.series[0].center,
-                    data: getMapOption(currentMode).series[0].data
-                }]
-            }); 
-        });
+    // 초기 화면 렌더링
+    chart.setOption({
+      ...getMapOption('gu'),
+      series: [{ ...getMapOption('gu').series[0], roam: true, zoom: 1 }]
     });
 
-    window.addEventListener('resize', () => chart.resize());
+    loadingOverlay.classList.add('hidden');
+
+    // 줌 이벤트 감지 및 레이어 스위칭 보정
+    chart.on('georoam', function () {
+      const option = chart.getOption();
+      const zoom = option.series[0].zoom;
+      const targetMode = zoom > 2.5 ? 'dong' : 'gu';
+      if (targetMode === currentMode) return;
+      currentMode = targetMode;
+
+      modeText.innerText = targetMode === 'dong' ? '행정동 정밀 모드' : '자치구 광역 모드';
+      modeBadge.classList.toggle('dong', targetMode === 'dong');
+
+      const newOption = getMapOption(targetMode);
+      chart.setOption({
+        series: [{
+          type: 'map',
+          map: targetMode === 'dong' ? 'seoul_dong' : 'seoul_gu',
+          roam: true,
+          zoom: zoom,
+          scaleLimit: { min: 0.9, max: 15 },
+          label: newOption.series[0].label,
+          itemStyle: newOption.series[0].itemStyle,
+          emphasis: newOption.series[0].emphasis,
+          data: newOption.series[0].data
+        }]
+      });
+    });
+
+    function setGauge(grade) {
+      const color = getGradeColor(grade);
+      const fillRatio = grade ? (10 - grade) / 9 : 0; // grade 1 → 거의 가득, 9 → 거의 빈 상태
+      const offset = gaugeCircumference * (1 - fillRatio);
+      gaugeFill.style.stroke = color;
+      gaugeFill.style.strokeDashoffset = offset;
+      const gradeNum = document.getElementById('grade-num');
+      gradeNum.innerText = grade || '—';
+      gradeNum.style.color = color;
+    }
+
+    // 클릭 이벤트
+    chart.on('click', function (params) {
+      const regionName = params.name;
+      const regionCode = params.data ? (params.data.code || "-") : "-";
+      selectedRegionName = regionName;
+
+      let score = "-";
+      let rank = "-";
+      let grade = null;
+
+      if (currentMode === 'dong') {
+        const res = findDongData(regionName);
+        if (res) {
+          score = res.score.toFixed(6);
+          rank = res.rank + " / 374";
+          grade = res.grade;
+        }
+      } else {
+        grade = Math.floor(Math.random() * 9) + 1;
+      }
+
+      document.getElementById('current-region').innerText = regionName;
+      document.getElementById('current-code').innerText =
+        (currentMode === 'gu' ? "자치구 코드 " : "행정동 코드 ") + regionCode;
+
+      setGauge(grade);
+      document.getElementById('score-display').innerText = score;
+      document.getElementById('rank-display').innerText = rank;
+
+      const randomRentPrice = Math.floor(Math.random() * 18) + 8;
+      document.getElementById('rent-display').innerText = `평당 약 ${randomRentPrice}만원`;
+
+      let recommendRank = "B · 평범";
+      let rankColor = "#93A1BC";
+      let rankBg = "var(--bg-card-hover)";
+
+      if (grade <= 3 && randomRentPrice <= 15) {
+        recommendRank = "👑 S · 대박 추천 (저임대 · 고성장)";
+        rankColor = "#0B1120"; rankBg = "#F2B84B";
+      } else if (grade <= 5 && randomRentPrice <= 18) {
+        recommendRank = "⭐ A · 우수 상권";
+        rankColor = "#0B1120"; rankBg = "#33D6C3";
+      } else if (grade >= 7 || randomRentPrice >= 22) {
+        recommendRank = "⚠️ D · 주의 (고임대 · 저성장)";
+        rankColor = "#FF8D8D"; rankBg = "rgba(255,82,82,0.14)";
+      }
+
+      const recDisplay = document.getElementById('recommend-display');
+      recDisplay.innerText = recommendRank;
+      recDisplay.style.color = rankColor;
+      recDisplay.style.background = rankBg;
+
+      const optionModel = chart.getOption();
+      chart.setOption({
+        series: [{
+          zoom: optionModel.series[0].zoom,
+          center: optionModel.series[0].center,
+          data: getMapOption(currentMode).series[0].data
+        }]
+      });
+    });
+  }).catch(err => {
+    loadingOverlay.querySelector('p').innerText = '데이터를 불러오지 못했습니다. 네트워크 상태를 확인해주세요.';
+    loadingOverlay.querySelector('.loading-spinner').style.display = 'none';
+    console.error(err);
+  });
+
+  window.addEventListener('resize', () => chart.resize());
 </script>
 
 </body>
