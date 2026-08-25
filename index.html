@@ -326,6 +326,15 @@
     transition: all 0.3s ease;
   }
 
+  .note-card {
+    padding: 14px 18px;
+  }
+  .note-text {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-tertiary);
+  }
+
   /* Legend */
   .legend-bar {
     height: 10px;
@@ -429,13 +438,21 @@
       </section>
 
       <section class="card value-card">
-        <div class="card-label">LOCATION VALUE · 상권 입지 가치 분석</div>
+        <div class="card-label">LOCATION VALUE · 임대료 참고 지표 (실측 데이터)</div>
         <div class="value-row">
-          <span class="value-label">💵 평균 예상 임대료</span>
-          <span id="rent-display" class="value-num mono">—</span>
+          <span class="value-label">🏪 1층 임대료(평당)</span>
+          <span id="rent-floor1" class="value-num mono">—</span>
         </div>
-        <div class="card-label" style="margin-bottom:8px;">🚀 가성비 개업 추천 등급</div>
-        <div id="recommend-display" class="recommend-badge">등급 산정 대기중</div>
+        <div class="value-row">
+          <span class="value-label">📐 전체 임대료(평당)</span>
+          <span id="rent-total" class="value-num mono">—</span>
+        </div>
+        <div class="card-label" style="margin-bottom:8px;">📊 소속 구(區) 평균 대비</div>
+        <div id="rent-compare" class="recommend-badge">지역을 선택하면 표시됩니다</div>
+      </section>
+
+      <section class="card note-card">
+        <p class="note-text">💡 등급과 임대료는 참고용 지표입니다. 개업 결정에 필요한 유동인구, 경쟁업종, 실제 매물 조건 등은 직접 확인해주세요.</p>
       </section>
 
       <section class="card legend-card">
@@ -670,44 +687,54 @@
       }));
     });
 
-    let score = "-", rank = "-", grade = null;
-    if (group.mode === 'dong') {
-      const res = findDongData(group.name);
-      if (res) { score = res.score.toFixed(6); rank = res.rank + " / 374"; grade = res.grade; }
-    } else {
-      grade = Math.floor(Math.random() * 9) + 1;
-    }
-
     document.getElementById('current-region').innerText = group.name;
     document.getElementById('current-code').innerText =
       (group.mode === 'gu' ? "자치구 코드 " : "행정동 코드 ") + (group.code || '-');
 
-    setGauge(grade);
-    document.getElementById('score-display').innerText = score;
-    document.getElementById('rank-display').innerText = rank;
+    const rentFloor1El = document.getElementById('rent-floor1');
+    const rentTotalEl = document.getElementById('rent-total');
+    const rentCompareEl = document.getElementById('rent-compare');
 
-    const randomRentPrice = Math.floor(Math.random() * 18) + 8;
-    document.getElementById('rent-display').innerText = `평당 약 ${randomRentPrice}만원`;
-
-    let recommendRank = "B · 평범";
-    let rankColor = "#93A1BC";
-    let rankBg = "var(--bg-card-hover)";
-
-    if (grade <= 3 && randomRentPrice <= 15) {
-      recommendRank = "👑 S · 대박 추천 (저임대 · 고성장)";
-      rankColor = "#0B1120"; rankBg = "#F2B84B";
-    } else if (grade <= 5 && randomRentPrice <= 18) {
-      recommendRank = "⭐ A · 우수 상권";
-      rankColor = "#0B1120"; rankBg = "#33D6C3";
-    } else if (grade >= 7 || randomRentPrice >= 22) {
-      recommendRank = "⚠️ D · 주의 (고임대 · 저성장)";
-      rankColor = "#FF8D8D"; rankBg = "rgba(255,82,82,0.14)";
+    if (group.mode !== 'dong') {
+      // 자치구 단위는 집계 지표가 없으므로 실측 데이터 없이 임의 수치를 보여주지 않음
+      setGauge(null);
+      document.getElementById('score-display').innerText = '-';
+      document.getElementById('rank-display').innerText = '-';
+      rentFloor1El.innerText = '-';
+      rentTotalEl.innerText = '-';
+      rentCompareEl.innerText = '🔍 확대해서 행정동을 선택하면 지표가 표시됩니다';
+      rentCompareEl.style.color = 'var(--text-secondary)';
+      rentCompareEl.style.background = 'var(--bg-card-hover)';
+      return;
     }
 
-    const recDisplay = document.getElementById('recommend-display');
-    recDisplay.innerText = recommendRank;
-    recDisplay.style.color = rankColor;
-    recDisplay.style.background = rankBg;
+    const q = findDongData(group.name); // 현재 선택된 분기의 {score, rank, grade}
+    const rec = findDongRecord(group.name);
+    const rent = rec ? rec.rent : null;
+    const f1 = rent ? rent.floor1 : null;
+    const total = rent ? rent.total : null;
+
+    setGauge(q ? q.grade : null);
+    document.getElementById('score-display').innerText = q ? q.score.toFixed(6) : '-';
+    document.getElementById('rank-display').innerText = q ? (q.rank + " / 374") : '-';
+
+    rentFloor1El.innerText = (f1 && f1.dong != null) ? f1.dong.toLocaleString('ko-KR') + '원' : '데이터 없음';
+    rentTotalEl.innerText = (total && total.dong != null) ? total.dong.toLocaleString('ko-KR') + '원' : '데이터 없음';
+
+    if (f1 && f1.diffPct != null) {
+      const pct = (f1.diffPct * 100).toFixed(1);
+      const won = f1.diffWon;
+      const isHigher = f1.diffPct > 0;
+      const sign = isHigher ? '+' : '';
+      rentCompareEl.innerText =
+        `${rent.gu} 평균보다 1층 기준 ${sign}${pct}% (${won >= 0 ? '+' : ''}${won.toLocaleString('ko-KR')}원)`;
+      rentCompareEl.style.color = '#0B1120';
+      rentCompareEl.style.background = isHigher ? 'var(--accent-gold)' : 'var(--accent-teal)';
+    } else {
+      rentCompareEl.innerText = '해당 동은 1층 임대료 비교 데이터가 없습니다';
+      rentCompareEl.style.color = 'var(--text-secondary)';
+      rentCompareEl.style.background = 'var(--bg-card-hover)';
+    }
   }
 
   function initApp() {
