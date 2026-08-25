@@ -315,6 +315,7 @@
   }
   .value-label { font-size: 13px; color: var(--text-secondary); }
   .value-num { font-size: 16px; font-weight: 700; color: var(--accent-gold); }
+  .value-card .value-row:last-of-type { border-bottom: none; padding-bottom: 4px; margin-bottom: 12px; }
   .recommend-badge {
     display: inline-block;
     padding: 9px 14px;
@@ -333,6 +334,40 @@
     font-size: 12px;
     line-height: 1.6;
     color: var(--text-tertiary);
+  }
+
+  /* Filter card */
+  .filter-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .filter-label { font-size: 13px; color: var(--text-secondary); flex-shrink: 0; }
+  .filter-select {
+    appearance: none;
+    background: var(--bg-card-hover);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+    flex: 1;
+    max-width: 150px;
+  }
+  .filter-select:focus { outline: none; border-color: var(--accent-teal); }
+  .filter-result {
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border-subtle);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--accent-teal);
+    font-weight: 600;
   }
 
   /* Legend */
@@ -444,11 +479,42 @@
           <span id="rent-floor1" class="value-num mono">—</span>
         </div>
         <div class="value-row">
+          <span class="value-label">🏢 1층외 임대료(평당)</span>
+          <span id="rent-other" class="value-num mono">—</span>
+        </div>
+        <div class="value-row">
           <span class="value-label">📐 전체 임대료(평당)</span>
           <span id="rent-total" class="value-num mono">—</span>
         </div>
-        <div class="card-label" style="margin-bottom:8px;">📊 소속 구(區) 평균 대비</div>
+        <div class="card-label" style="margin-bottom:8px;">📊 소속 구(區) 평균 대비 (1층 기준)</div>
         <div id="rent-compare" class="recommend-badge">지역을 선택하면 표시됩니다</div>
+      </section>
+
+      <section class="card filter-card">
+        <div class="card-label">FILTER · 조건으로 찾기</div>
+        <div class="filter-row">
+          <label class="filter-label" for="filter-grade">핫플등급</label>
+          <select id="filter-grade" class="filter-select">
+            <option value="">전체</option>
+            <option value="1">1등급만</option>
+            <option value="2">2등급 이내</option>
+            <option value="3">3등급 이내</option>
+            <option value="5">5등급 이내</option>
+            <option value="7">7등급 이내</option>
+          </select>
+        </div>
+        <div class="filter-row">
+          <label class="filter-label" for="filter-rent">1층 임대료(구 대비)</label>
+          <select id="filter-rent" class="filter-select">
+            <option value="">전체</option>
+            <option value="0.05">5% 이상 저렴</option>
+            <option value="0.1">10% 이상 저렴</option>
+            <option value="0.15">15% 이상 저렴</option>
+            <option value="0.2">20% 이상 저렴</option>
+            <option value="0.3">30% 이상 저렴</option>
+          </select>
+        </div>
+        <div id="filter-result" class="filter-result">전체 374개 동 표시 중</div>
       </section>
 
       <section class="card note-card">
@@ -487,6 +553,10 @@
   let guGroups = [];
   let dongGroups = [];
 
+  // 조건 필터 — maxGrade: 이 등급 이하만 표시, minCheaperPct: 구 평균보다 이 비율(0~1) 이상 저렴해야 표시
+  const filterState = { maxGrade: null, minCheaperPct: null };
+  function filterActive() { return filterState.maxGrade != null || filterState.minCheaperPct != null; }
+
   // 레벨이 이 값 이하로 내려가면(더 확대하면) 행정동 정밀 모드로 전환
   const DONG_LEVEL_THRESHOLD = 5;
 
@@ -499,6 +569,31 @@
   function regionOpacity(mode, state) {
     // state: 'base' | 'hover' | 'selected'
     return OPACITY[mode][colorMode][state];
+  }
+
+  // 필터 조건을 만족하는지 확인 (자치구 단위는 집계 지표가 없어 항상 통과)
+  function passesFilter(group) {
+    if (group.mode !== 'dong') return true;
+    if (!filterActive()) return true;
+
+    if (filterState.maxGrade != null) {
+      const q = findDongData(group.name); // 현재 분기 기준 grade
+      if (!q || q.grade == null || q.grade > filterState.maxGrade) return false;
+    }
+    if (filterState.minCheaperPct != null) {
+      const rec = findDongRecord(group.name);
+      const f1 = rec && rec.rent ? rec.rent.floor1 : null;
+      if (!f1 || f1.diffPct == null || f1.diffPct > -filterState.minCheaperPct) return false;
+    }
+    return true;
+  }
+
+  // 필터에 걸러진 지역은 색상 모드와 무관하게 강하게 흐리게 표시
+  function currentFillOpacity(group, state) {
+    if (group.mode === 'dong' && filterActive() && !passesFilter(group)) {
+      return state === 'hover' ? 0.12 : 0.02;
+    }
+    return regionOpacity(group.mode, state);
   }
 
   // 폴리곤 파츠 중 정점이 가장 많은(가장 큰) 부분의 정점 평균으로 라벨 위치 근사
@@ -567,11 +662,12 @@
       const grade = mode === 'dong' ? (findDongData(name) ? findDongData(name).grade : null) : null;
       const baseColor = mode === 'dong' ? getGradeColor(grade) : '#161F33';
 
-      const group = { name, code, mode, grade, polygons: [], labelOverlay: null };
+      const group = { name, code, mode, grade, polygons: [], labelOverlay: null, labelEl: null };
 
       const labelEl = document.createElement('div');
       labelEl.className = mode === 'gu' ? 'map-label gu' : 'map-label';
       labelEl.innerText = name;
+      group.labelEl = labelEl;
       group.labelOverlay = new kakao.maps.CustomOverlay({
         position: computeCentroid(paths),
         content: labelEl,
@@ -588,19 +684,20 @@
           strokeColor: mode === 'dong' ? '#0E1424' : '#3A4A70',
           strokeOpacity: 0.9,
           fillColor: baseColor,
-          fillOpacity: regionOpacity(mode, 'base')
+          fillOpacity: currentFillOpacity(group, 'base')
         });
 
         kakao.maps.event.addListener(polygon, 'mouseover', function () {
           group.polygons.forEach(p => p.setOptions({
-            fillOpacity: regionOpacity(mode, 'hover'),
+            fillOpacity: currentFillOpacity(group, 'hover'),
             strokeColor: '#33D6C3'
           }));
           tooltipEl.style.display = 'block';
           const gradeText = mode === 'dong'
             ? (group.grade ? `${group.grade}등급` : '데이터 없음')
             : '확대해서 행정동을 확인하세요';
-          tooltipEl.innerHTML = `<b>${name}</b><br>${gradeText}`;
+          const filterNote = (mode === 'dong' && filterActive() && !passesFilter(group)) ? '<br><em>필터 조건 미충족</em>' : '';
+          tooltipEl.innerHTML = `<b>${name}</b><br>${gradeText}${filterNote}`;
         });
 
         kakao.maps.event.addListener(polygon, 'mousemove', function (mouseEvent) {
@@ -613,7 +710,7 @@
         kakao.maps.event.addListener(polygon, 'mouseout', function () {
           const isSelected = group.name === selectedRegionName;
           group.polygons.forEach(p => p.setOptions({
-            fillOpacity: regionOpacity(mode, isSelected ? 'selected' : 'base'),
+            fillOpacity: currentFillOpacity(group, isSelected ? 'selected' : 'base'),
             strokeColor: isSelected ? '#F2B84B' : (mode === 'dong' ? '#0E1424' : '#3A4A70')
           }));
           tooltipEl.style.display = 'none';
@@ -642,7 +739,7 @@
     [...guGroups, ...dongGroups].forEach(g => {
       const isSelected = g.name === selectedRegionName;
       g.polygons.forEach(p => p.setOptions({
-        fillOpacity: regionOpacity(g.mode, isSelected ? 'selected' : 'base')
+        fillOpacity: currentFillOpacity(g, isSelected ? 'selected' : 'base')
       }));
     });
   }
@@ -658,9 +755,34 @@
       group.polygons.forEach(p => p.setOptions({ fillColor: color }));
     });
 
+    refreshFilter(); // 등급이 바뀌었으니 필터 통과 여부도 다시 계산
+
     if (selectedRegionName) {
       const activeGroup = dongGroups.find(g => g.name === selectedRegionName);
       if (activeGroup) selectRegion(activeGroup);
+    }
+  }
+
+  // 필터 조건(등급/임대료)이 바뀔 때마다 모든 행정동의 표시 여부를 다시 계산
+  function refreshFilter() {
+    let matchCount = 0;
+    dongGroups.forEach(g => {
+      const pass = passesFilter(g);
+      if (pass) matchCount++;
+      const isSelected = g.name === selectedRegionName;
+      g.polygons.forEach(p => p.setOptions({
+        fillOpacity: currentFillOpacity(g, isSelected ? 'selected' : 'base')
+      }));
+      if (g.labelEl) g.labelEl.style.opacity = pass ? '1' : '0.2';
+    });
+
+    const resultEl = document.getElementById('filter-result');
+    if (!filterActive()) {
+      resultEl.innerText = `전체 ${dongGroups.length}개 동 표시 중`;
+    } else {
+      let msg = `조건에 맞는 동 ${matchCount}개 / 전체 ${dongGroups.length}개`;
+      if (currentMode !== 'dong') msg += ' · 확대하면 표시돼요';
+      resultEl.innerText = msg;
     }
   }
 
@@ -683,7 +805,7 @@
       g.polygons.forEach(p => p.setOptions({
         strokeColor: isSel ? '#F2B84B' : (g.mode === 'dong' ? '#0E1424' : '#3A4A70'),
         strokeWeight: isSel ? (g.mode === 'dong' ? 2.4 : 3) : (g.mode === 'dong' ? 1 : 2),
-        fillOpacity: regionOpacity(g.mode, isSel ? 'selected' : 'base')
+        fillOpacity: currentFillOpacity(g, isSel ? 'selected' : 'base')
       }));
     });
 
@@ -692,6 +814,7 @@
       (group.mode === 'gu' ? "자치구 코드 " : "행정동 코드 ") + (group.code || '-');
 
     const rentFloor1El = document.getElementById('rent-floor1');
+    const rentOtherEl = document.getElementById('rent-other');
     const rentTotalEl = document.getElementById('rent-total');
     const rentCompareEl = document.getElementById('rent-compare');
 
@@ -701,6 +824,7 @@
       document.getElementById('score-display').innerText = '-';
       document.getElementById('rank-display').innerText = '-';
       rentFloor1El.innerText = '-';
+      rentOtherEl.innerText = '-';
       rentTotalEl.innerText = '-';
       rentCompareEl.innerText = '🔍 확대해서 행정동을 선택하면 지표가 표시됩니다';
       rentCompareEl.style.color = 'var(--text-secondary)';
@@ -712,6 +836,7 @@
     const rec = findDongRecord(group.name);
     const rent = rec ? rec.rent : null;
     const f1 = rent ? rent.floor1 : null;
+    const other = rent ? rent.other : null;
     const total = rent ? rent.total : null;
 
     setGauge(q ? q.grade : null);
@@ -719,6 +844,7 @@
     document.getElementById('rank-display').innerText = q ? (q.rank + " / 374") : '-';
 
     rentFloor1El.innerText = (f1 && f1.dong != null) ? f1.dong.toLocaleString('ko-KR') + '원' : '데이터 없음';
+    rentOtherEl.innerText = (other && other.dong != null) ? other.dong.toLocaleString('ko-KR') + '원' : '데이터 없음';
     rentTotalEl.innerText = (total && total.dong != null) ? total.dong.toLocaleString('ko-KR') + '원' : '데이터 없음';
 
     if (f1 && f1.diffPct != null) {
@@ -755,6 +881,7 @@
       dongGroups = buildGroups(dongGeojson, 'dong');
 
       showGroups(guGroups); // 초기 화면은 자치구 단위만 표시
+      refreshFilter();
       currentMode = 'gu';
 
       loadingOverlay.classList.add('hidden');
@@ -795,6 +922,17 @@
         toggleButtons.forEach(b => b.classList.toggle('active', b === btn));
         applyColorMode();
       });
+    });
+
+    const filterGradeEl = document.getElementById('filter-grade');
+    const filterRentEl = document.getElementById('filter-rent');
+    filterGradeEl.addEventListener('change', function () {
+      filterState.maxGrade = filterGradeEl.value ? Number(filterGradeEl.value) : null;
+      refreshFilter();
+    });
+    filterRentEl.addEventListener('change', function () {
+      filterState.minCheaperPct = filterRentEl.value ? Number(filterRentEl.value) : null;
+      refreshFilter();
     });
 
     if (typeof kakao === 'undefined' || !kakao.maps) {
