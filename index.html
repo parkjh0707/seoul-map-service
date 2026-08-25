@@ -73,7 +73,7 @@
     font-weight: 800;
     letter-spacing: -0.01em;
   }
-  .topbar-meta { display: flex; align-items: center; gap: 12px; }
+  .topbar-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; row-gap: 8px; }
   .stat-chip {
     display: flex;
     align-items: baseline;
@@ -368,6 +368,13 @@
       <h1>상권 성장 예측 플랫폼</h1>
     </div>
     <div class="topbar-meta">
+      <div class="mode-toggle" id="quarter-toggle">
+        <button type="button" class="toggle-btn active" data-quarter="26Q4">26년 4Q</button>
+        <button type="button" class="toggle-btn" data-quarter="27Q1">27년 1Q</button>
+        <button type="button" class="toggle-btn" data-quarter="27Q2">27년 2Q</button>
+        <button type="button" class="toggle-btn" data-quarter="27Q3">27년 3Q</button>
+        <button type="button" class="toggle-btn" data-quarter="27Q4">27년 4Q</button>
+      </div>
       <div class="mode-toggle" id="color-mode-toggle">
         <button type="button" class="toggle-btn active" data-mode="color">🎨 컬러 모드</button>
         <button type="button" class="toggle-btn" data-mode="clean">🗺️ 클린 모드</button>
@@ -389,7 +396,10 @@
 
     <aside class="panel">
       <section class="card hero-card">
-        <div class="card-label">SELECTED · 분석 선택 지역</div>
+        <div class="card-label" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>SELECTED · 분석 선택 지역</span>
+          <span id="current-quarter-label" class="mono" style="color:var(--accent-gold); font-size:10px;">26Q4</span>
+        </div>
         <div id="current-region" class="region-name">지역을 클릭하세요</div>
         <div id="current-code" class="region-code">행정구역 코드 —</div>
       </section>
@@ -455,6 +465,7 @@
   let selectedRegionName = null;
   let currentMode = 'gu';
   let colorMode = 'color'; // 'color' (한눈에 보기) | 'clean' (실제 지도 위주 탐색)
+  let currentQuarter = '26Q4'; // 26Q4, 27Q1, 27Q2, 27Q3, 27Q4
   let map = null;
   let guGroups = [];
   let dongGroups = [];
@@ -493,8 +504,8 @@
     return colorMap[grade] || '#3a4560';
   }
 
-  // 이름 예외 처리 매칭
-  function findDongData(geoName) {
+  // 이름 예외 처리 매칭 — data.json은 동 이름 아래 분기별(26Q4, 27Q1~Q4) 데이터를 담고 있음
+  function findDongRecord(geoName) {
     if (dongGradeData[geoName]) return dongGradeData[geoName];
     const cleanName = geoName.replace('제', '');
     if (dongGradeData[cleanName]) return dongGradeData[cleanName];
@@ -502,6 +513,11 @@
       if (geoName.includes(key) || key.includes(geoName)) return dongGradeData[key];
     }
     return null;
+  }
+
+  function findDongData(geoName) {
+    const rec = findDongRecord(geoName);
+    return rec ? rec[currentQuarter] : null;
   }
 
   function showMapError(msg) {
@@ -614,6 +630,23 @@
     });
   }
 
+  // 분기 전환 시 행정동 등급/색상을 다시 계산해 적용하고, 선택된 지역이 있으면 패널도 갱신
+  function applyQuarter() {
+    document.getElementById('current-quarter-label').innerText = currentQuarter;
+
+    dongGroups.forEach(group => {
+      const rec = findDongData(group.name);
+      group.grade = rec ? rec.grade : null;
+      const color = getGradeColor(group.grade);
+      group.polygons.forEach(p => p.setOptions({ fillColor: color }));
+    });
+
+    if (selectedRegionName) {
+      const activeGroup = dongGroups.find(g => g.name === selectedRegionName);
+      if (activeGroup) selectRegion(activeGroup);
+    }
+  }
+
   function setGauge(grade) {
     const color = getGradeColor(grade);
     const fillRatio = grade ? (10 - grade) / 9 : 0; // 1등급 → 거의 가득, 9등급 → 거의 빈 상태
@@ -719,6 +752,15 @@
   }
 
   window.addEventListener('load', function () {
+    const quarterButtons = document.querySelectorAll('#quarter-toggle .toggle-btn');
+    quarterButtons.forEach(btn => {
+      btn.addEventListener('click', function () {
+        currentQuarter = btn.dataset.quarter;
+        quarterButtons.forEach(b => b.classList.toggle('active', b === btn));
+        applyQuarter();
+      });
+    });
+
     const toggleButtons = document.querySelectorAll('#color-mode-toggle .toggle-btn');
     toggleButtons.forEach(btn => {
       btn.addEventListener('click', function () {
