@@ -388,6 +388,81 @@
     display: block; font-style: normal; color: var(--text-tertiary); font-size: 10px; margin-top: 2px;
   }
 
+  /* ---------- Commercial area (상권) markers & popup ---------- */
+  .commercial-marker {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px 3px 6px;
+    background: rgba(242, 184, 75, 0.92);
+    border: 1px solid rgba(11, 17, 32, 0.4);
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #0B1120;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .commercial-marker:hover {
+    transform: scale(1.08);
+    background: #ffffff;
+  }
+  .commercial-marker .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #0B1120;
+    flex-shrink: 0;
+  }
+
+  .commercial-popup {
+    position: absolute;
+    z-index: 30;
+    min-width: 220px;
+    max-width: 260px;
+    background: rgba(14, 20, 36, 0.97);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    padding: 14px 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    display: none;
+  }
+  .commercial-popup.visible { display: block; }
+  .commercial-popup-close {
+    position: absolute;
+    top: 8px; right: 10px;
+    cursor: pointer;
+    color: var(--text-tertiary);
+    font-size: 14px;
+    line-height: 1;
+    background: none;
+    border: none;
+  }
+  .commercial-popup-close:hover { color: var(--text-primary); }
+  .commercial-popup-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+    padding-right: 16px;
+  }
+  .commercial-popup-sub {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-bottom: 10px;
+    font-family: var(--font-mono);
+  }
+  .commercial-popup-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 6px 0;
+    border-top: 1px dashed var(--border-subtle);
+  }
+  .commercial-popup-row:first-of-type { border-top: none; }
+  .commercial-popup-row .k { font-size: 12px; color: var(--text-secondary); }
+  .commercial-popup-row .v { font-size: 13px; font-weight: 700; color: var(--accent-teal); font-family: var(--font-mono); }
+
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 
@@ -432,6 +507,23 @@
     <div class="map-pane">
       <div id="map-canvas"></div>
       <div id="map-tooltip" class="map-tooltip"></div>
+      <div id="commercial-popup" class="commercial-popup">
+        <button type="button" class="commercial-popup-close" id="commercial-popup-close">&times;</button>
+        <div id="commercial-popup-title" class="commercial-popup-title">-</div>
+        <div id="commercial-popup-sub" class="commercial-popup-sub">-</div>
+        <div class="commercial-popup-row">
+          <span class="k">🏆 최고매출 업종</span>
+          <span id="commercial-popup-service" class="v">-</span>
+        </div>
+        <div class="commercial-popup-row">
+          <span class="k">💰 최고매출액</span>
+          <span id="commercial-popup-max" class="v">-</span>
+        </div>
+        <div class="commercial-popup-row">
+          <span class="k">📊 상권 평균매출</span>
+          <span id="commercial-popup-avg" class="v">-</span>
+        </div>
+      </div>
       <div id="loading-overlay" class="loading-overlay">
         <div class="loading-spinner"></div>
         <p>카카오맵 및 서울시 행정구역 데이터 불러오는 중…</p>
@@ -534,9 +626,11 @@
   </main>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/proj4@2/dist/proj4.js"></script>
 <script>
   // ---------- 공용 상태 ----------
   let dongGradeData = {};
+  let commercialData = {}; // { 행정동명: [ {name, areaCode, topService, maxSales, avgSales, x, y}, ... ] }
   const mapCanvasEl = document.getElementById('map-canvas');
   const tooltipEl = document.getElementById('map-tooltip');
   const modeBadge = document.getElementById('layer-indicator');
@@ -545,6 +639,13 @@
   const gaugeFill = document.getElementById('gauge-fill');
   const gaugeCircumference = 2 * Math.PI * 52; // ≈ 326.73
 
+  // 상권 좌표계(EPSG:5181, 서울시 상권분석서비스 좌표) → WGS84 변환 정의
+  proj4.defs("EPSG:5181", "+proj=tmerc +lat_0=38 +lon_0=127 +k=1 +x_0=200000 +y_0=600000 +ellps=GRS80 +units=m +no_defs");
+  function tmToLatLng(x, y) {
+    const [lng, lat] = proj4("EPSG:5181", "WGS84", [x, y]);
+    return new kakao.maps.LatLng(lat, lng);
+  }
+
   let selectedRegionName = null;
   let currentMode = 'gu';
   let colorMode = 'color'; // 'color' (한눈에 보기) | 'clean' (실제 지도 위주 탐색)
@@ -552,6 +653,7 @@
   let map = null;
   let guGroups = [];
   let dongGroups = [];
+  let commercialOverlays = []; // 현재 화면에 떠 있는 상권 마커 CustomOverlay 목록
 
   // 조건 필터 — maxGrade: 이 등급 이하만 표시, minCheaperPct: 구 평균보다 이 비율(0~1) 이상 저렴해야 표시
   const filterState = { maxGrade: null, minCheaperPct: null };
@@ -630,6 +732,17 @@
   function findDongData(geoName) {
     const rec = findDongRecord(geoName);
     return rec ? rec[currentQuarter] : null;
+  }
+
+  // commercialData도 dongGradeData와 동일한 이름 매칭 로직을 공유
+  function findCommercialAreas(geoName) {
+    if (commercialData[geoName]) return commercialData[geoName];
+    const cleanName = geoName.replace('제', '');
+    if (commercialData[cleanName]) return commercialData[cleanName];
+    for (let key in commercialData) {
+      if (geoName.includes(key) || key.includes(geoName)) return commercialData[key];
+    }
+    return null;
   }
 
   function showMapError(msg) {
@@ -797,6 +910,77 @@
     gradeNum.style.color = color;
   }
 
+  // ---------- 상권(길) 마커 & 팝업 ----------
+  const commercialPopupEl = document.getElementById('commercial-popup');
+  const commercialPopupTitleEl = document.getElementById('commercial-popup-title');
+  const commercialPopupSubEl = document.getElementById('commercial-popup-sub');
+  const commercialPopupServiceEl = document.getElementById('commercial-popup-service');
+  const commercialPopupMaxEl = document.getElementById('commercial-popup-max');
+  const commercialPopupAvgEl = document.getElementById('commercial-popup-avg');
+  document.getElementById('commercial-popup-close').addEventListener('click', hideCommercialPopup);
+
+  function formatWon(n) {
+    if (n == null) return '-';
+    if (n >= 100000000) return (n / 100000000).toFixed(1) + '억원';
+    if (n >= 10000) return (n / 10000).toFixed(0) + '만원';
+    return n.toLocaleString('ko-KR') + '원';
+  }
+
+  function hideCommercialPopup() {
+    commercialPopupEl.classList.remove('visible');
+  }
+
+  function showCommercialPopup(area, latLng) {
+    commercialPopupTitleEl.innerText = area.name;
+    commercialPopupSubEl.innerText = '상권코드 ' + area.areaCode;
+    commercialPopupServiceEl.innerText = area.topService;
+    commercialPopupMaxEl.innerText = formatWon(area.maxSales);
+    commercialPopupAvgEl.innerText = formatWon(area.avgSales);
+
+    const proj = map.getProjection();
+    const point = proj.pointFromCoords(latLng);
+    commercialPopupEl.style.left = Math.max(8, point.x - 110) + 'px';
+    commercialPopupEl.style.top = Math.max(8, point.y - 150) + 'px';
+    commercialPopupEl.classList.add('visible');
+  }
+
+  // 현재 떠 있는 상권 마커를 모두 지도에서 제거
+  function clearCommercialOverlays() {
+    commercialOverlays.forEach(o => o.setMap(null));
+    commercialOverlays = [];
+    hideCommercialPopup();
+  }
+
+  // 선택된 행정동 안의 상권(길) 마커들을 지도에 표시
+  function showCommercialAreas(dongName) {
+    clearCommercialOverlays();
+    const areas = findCommercialAreas(dongName);
+    if (!areas || !areas.length) return;
+
+    areas.forEach(area => {
+      const latLng = tmToLatLng(area.x, area.y);
+
+      const el = document.createElement('div');
+      el.className = 'commercial-marker';
+      el.innerHTML = `<span class="dot"></span><span>${area.name}</span>`;
+
+      const overlay = new kakao.maps.CustomOverlay({
+        position: latLng,
+        content: el,
+        yAnchor: 1,
+        xAnchor: 0.5,
+        zIndex: 15
+      });
+      overlay.setMap(map);
+      commercialOverlays.push(overlay);
+
+      el.addEventListener('click', function (e) {
+        e.stopPropagation();
+        showCommercialPopup(area, latLng);
+      });
+    });
+  }
+
   function selectRegion(group) {
     selectedRegionName = group.name;
     const list = group.mode === 'dong' ? dongGroups : guGroups;
@@ -829,6 +1013,7 @@
       rentCompareEl.innerText = '🔍 확대해서 행정동을 선택하면 지표가 표시됩니다';
       rentCompareEl.style.color = 'var(--text-secondary)';
       rentCompareEl.style.background = 'var(--bg-card-hover)';
+      clearCommercialOverlays(); // 자치구 단위 선택 시 상권 마커 제거
       return;
     }
 
@@ -861,6 +1046,9 @@
       rentCompareEl.style.color = 'var(--text-secondary)';
       rentCompareEl.style.background = 'var(--bg-card-hover)';
     }
+
+    // 행정동을 선택하면 그 동 안의 상권(길) 마커를 표시
+    showCommercialAreas(group.name);
   }
 
   function initApp() {
@@ -870,13 +1058,18 @@
     };
     map = new kakao.maps.Map(mapCanvasEl, mapOption);
 
+    // 지도를 클릭하면(빈 공간) 상권 팝업 닫기
+    kakao.maps.event.addListener(map, 'click', hideCommercialPopup);
+
     Promise.all([
       fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_municipalities_geo.json").then(r => r.json()),
       fetch("https://raw.githubusercontent.com/southkorea/seoul-maps/master/kostat/2013/json/seoul_submunicipalities_geo.json").then(r => r.json()),
-      fetch("./data.json").then(r => r.json())
-    ]).then(([guGeojson, dongGeojson, loadedGradeData]) => {
+      fetch("./data.json").then(r => r.json()),
+      fetch("./commercial_areas.json").then(r => r.json())
+    ]).then(([guGeojson, dongGeojson, loadedGradeData, loadedCommercialData]) => {
 
       dongGradeData = loadedGradeData;
+      commercialData = loadedCommercialData;
       guGroups = buildGroups(guGeojson, 'gu');
       dongGroups = buildGroups(dongGeojson, 'dong');
 
@@ -897,6 +1090,9 @@
 
         modeText.innerText = currentMode === 'dong' ? '행정동 정밀 모드' : '자치구 광역 모드';
         modeBadge.classList.toggle('dong', currentMode === 'dong');
+
+        // 자치구 단위로 다시 축소하면 상권 마커도 정리
+        if (currentMode === 'gu') clearCommercialOverlays();
       });
 
     }).catch(err => {
