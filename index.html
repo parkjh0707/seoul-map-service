@@ -631,6 +631,8 @@
   // ---------- 공용 상태 ----------
   let dongGradeData = {};
   let commercialData = {}; // { 행정동명: [ {name, areaCode, topService, maxSales, avgSales, x, y}, ... ] }
+  let dongGradeIndex = {};   // 정규화된 동 이름 → data.json 키
+  let commercialIndex = {};  // 정규화된 동 이름 → commercial_areas.json 키
   const mapCanvasEl = document.getElementById('map-canvas');
   const tooltipEl = document.getElementById('map-tooltip');
   const modeBadge = document.getElementById('layer-indicator');
@@ -639,11 +641,21 @@
   const gaugeFill = document.getElementById('gauge-fill');
   const gaugeCircumference = 2 * Math.PI * 52; // ≈ 326.73
 
-  // 상권 좌표계(EPSG:5181, 서울시 상권분석서비스 좌표) → WGS84 변환 정의
-  proj4.defs("EPSG:5181", "+proj=tmerc +lat_0=38 +lon_0=127 +k=1 +x_0=200000 +y_0=600000 +ellps=GRS80 +units=m +no_defs");
+  // ★ 수정 1: EPSG:5181(중부원점 구 TM) 은 y_0 = 500000 (기존 600000은 EPSG:5186 값이라 마커가 ~100km 아래로 밀렸음)
+  proj4.defs("EPSG:5181", "+proj=tmerc +lat_0=38 +lon_0=127 +k=1 +x_0=200000 +y_0=500000 +ellps=GRS80 +units=m +no_defs");
   function tmToLatLng(x, y) {
     const [lng, lat] = proj4("EPSG:5181", "WGS84", [x, y]);
     return new kakao.maps.LatLng(lat, lng);
+  }
+
+  // ★ 수정 2: 동 이름 정규화 — "종로1·2·3·4가동", "종로1?2?3?4가동", "종로1.2.3.4가동" 을 모두 "종로1234가동" 으로 통일
+  function normName(name) {
+    return String(name).replace(/[^가-힣0-9]/g, '');
+  }
+  function buildNameIndex(obj) {
+    const idx = {};
+    Object.keys(obj).forEach(k => { idx[normName(k)] = k; });
+    return idx;
   }
 
   let selectedRegionName = null;
@@ -718,8 +730,10 @@
     return colorMap[grade] || '#3a4560';
   }
 
-  // 이름 예외 처리 매칭 — data.json은 동 이름 아래 분기별(26Q4, 27Q1~Q4) 데이터를 담고 있음
+  // 이름 매칭 — 정규화한 이름으로 먼저 정확히 찾고, 실패하면 기존 방식(부분 일치)으로 폴백
   function findDongRecord(geoName) {
+    const n = normName(geoName);
+    if (dongGradeIndex[n]) return dongGradeData[dongGradeIndex[n]];
     if (dongGradeData[geoName]) return dongGradeData[geoName];
     const cleanName = geoName.replace('제', '');
     if (dongGradeData[cleanName]) return dongGradeData[cleanName];
@@ -734,8 +748,10 @@
     return rec ? rec[currentQuarter] : null;
   }
 
-  // commercialData도 dongGradeData와 동일한 이름 매칭 로직을 공유
+  // commercialData도 동일한 방식으로 매칭
   function findCommercialAreas(geoName) {
+    const n = normName(geoName);
+    if (commercialIndex[n]) return commercialData[commercialIndex[n]];
     if (commercialData[geoName]) return commercialData[geoName];
     const cleanName = geoName.replace('제', '');
     if (commercialData[cleanName]) return commercialData[cleanName];
@@ -775,7 +791,11 @@
       const grade = mode === 'dong' ? (findDongData(name) ? findDongData(name).grade : null) : null;
       const baseColor = mode === 'dong' ? getGradeColor(grade) : '#161F33';
 
-      const group = { name, code, mode, grade, polygons: [], labelOverlay: null, labelEl: null };
+      // ★ 수정 3: 폴리곤 전체를 감싸는 사각 범위 — 동명이인 동(예: 신사동)의 상권을 걸러낼 때 사용
+      const bounds = new kakao.maps.LatLngBounds();
+      paths.forEach(p => p.forEach(ll => bounds.extend(ll)));
+
+      const group = { name, code, mode, grade, bounds, polygons: [], labelOverlay: null, labelEl: null };
 
       const labelEl = document.createElement('div');
       labelEl.className = mode === 'gu' ? 'map-label gu' : 'map-label';
@@ -814,8 +834,9 @@
         });
 
         kakao.maps.event.addListener(polygon, 'mousemove', function (mouseEvent) {
+          // ★ 수정 4: 지도 컨테이너 기준 좌표 사용 (pointFromCoords는 기준이 달라 위치가 어긋남)
           const proj = map.getProjection();
-          const point = proj.pointFromCoords(mouseEvent.latLng);
+          const point = proj.containerPointFromCoords(mouseEvent.latLng);
           tooltipEl.style.left = (point.x + 14) + 'px';
           tooltipEl.style.top = (point.y + 14) + 'px';
         });
@@ -937,8 +958,9 @@
     commercialPopupMaxEl.innerText = formatWon(area.maxSales);
     commercialPopupAvgEl.innerText = formatWon(area.avgSales);
 
+    // ★ 수정 4: 컨테이너 기준 좌표
     const proj = map.getProjection();
-    const point = proj.pointFromCoords(latLng);
+    const point = proj.containerPointFromCoords(latLng);
     commercialPopupEl.style.left = Math.max(8, point.x - 110) + 'px';
     commercialPopupEl.style.top = Math.max(8, point.y - 150) + 'px';
     commercialPopupEl.classList.add('visible');
@@ -952,14 +974,17 @@
   }
 
   // 선택된 행정동 안의 상권(길) 마커들을 지도에 표시
-  function showCommercialAreas(dongName) {
+  function showCommercialAreas(group) {
     clearCommercialOverlays();
-    const areas = findCommercialAreas(dongName);
+    const areas = findCommercialAreas(group.name);
     if (!areas || !areas.length) return;
 
-    areas.forEach(area => {
-      const latLng = tmToLatLng(area.x, area.y);
+    // 좌표 변환 후, 선택한 동의 범위 안에 있는 상권만 남김 (신사동처럼 이름이 같은 다른 구의 상권이 섞인 경우 대비)
+    const items = areas.map(area => ({ area, latLng: tmToLatLng(area.x, area.y) }));
+    const inside = items.filter(it => group.bounds && group.bounds.contain(it.latLng));
+    const targets = inside.length ? inside : items;
 
+    targets.forEach(({ area, latLng }) => {
       const el = document.createElement('div');
       el.className = 'commercial-marker';
       el.innerHTML = `<span class="dot"></span><span>${area.name}</span>`;
@@ -1048,7 +1073,7 @@
     }
 
     // 행정동을 선택하면 그 동 안의 상권(길) 마커를 표시
-    showCommercialAreas(group.name);
+    showCommercialAreas(group);
   }
 
   function initApp() {
@@ -1070,6 +1095,8 @@
 
       dongGradeData = loadedGradeData;
       commercialData = loadedCommercialData;
+      dongGradeIndex = buildNameIndex(dongGradeData);
+      commercialIndex = buildNameIndex(commercialData);
       guGroups = buildGroups(guGeojson, 'gu');
       dongGroups = buildGroups(dongGeojson, 'dong');
 
@@ -1132,7 +1159,7 @@
     });
 
     if (typeof kakao === 'undefined' || !kakao.maps) {
-      showMapError('카카오맵 API 키가 설정되지 않았습니다. index.html 상단의 YOUR_KAKAO_APP_KEY 를 발급받은 JavaScript 키로 교체해주세요.');
+      showMapError('카카오맵 SDK를 불러오지 못했습니다. JavaScript 키와 등록된 사이트 도메인을 확인해주세요.');
       return;
     }
     kakao.maps.load(initApp);
